@@ -4,7 +4,7 @@
 import json
 import os
 from typing import List, Set, Tuple
-from config import Job, BASE_URL, CSS_SELECTOR, REQUIRED_KEYS
+from config import Job, CSS_SELECTOR, REQUIRED_KEYS
 from dotenv import load_dotenv
 import asyncio
 import csv
@@ -74,7 +74,7 @@ async def crawl_jobs():
     async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
 
-            if page_number > 4:  # Limit to 10 pages
+            if page_number > 2:  # Limit to 10 pages
                 print("Reached the maximum number of pages to crawl.")
                 break
             url = f"{BASE_URL}-{page_number}"
@@ -147,7 +147,6 @@ async def crawl_jobs():
                 )
 
             page_number = page_number + 1
-            await asyncio.sleep(1000)
         if jobs:
             field_names = Job.model_fields.keys()
             with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
