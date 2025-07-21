@@ -8,7 +8,8 @@ from config import Job, BASE_URL, CSS_SELECTOR, REQUIRED_KEYS
 from dotenv import load_dotenv
 import asyncio
 import csv
-
+import re
+from bs4 import BeautifulSoup
 
 from crawl4ai import (
     AsyncWebCrawler,
@@ -20,6 +21,29 @@ from crawl4ai import (
 )
 
 load_dotenv()
+BASE_URL = "https://www.naukri.com/"
+
+
+def change_base_url(company: str = None, location: str = None, profession: str = None):
+    global BASE_URL
+    if company:
+        BASE_URL = f"{BASE_URL}{company}-jobs"
+    elif location:
+        BASE_URL = f"{BASE_URL}jobs-in-{location}"
+    elif profession:
+        BASE_URL = f"{BASE_URL}{profession}-jobs"
+    elif company and location:
+        BASE_URL = f"{BASE_URL}{company}-jobs-in-{location}"
+    elif company and profession:
+        BASE_URL = f"{BASE_URL}{company}-{profession}-jobs"
+    elif location and profession:
+        BASE_URL = f"{BASE_URL}jobs-in-{location}-{profession}"
+    elif company and location and profession:
+        BASE_URL = f"{BASE_URL}{profession}-{company}-jobs-in-{location}"
+    return BASE_URL
+
+
+change_base_url(profession="datascience")  # Example usage, change as needed
 
 
 # -------------------------------------------------------------------------------------------------------------------------
@@ -30,7 +54,8 @@ async def crawl_jobs():
     # -------------------------------------------------------------------------------------------------------------------------
     # LLM extraction strategy configuration
     # -------------------------------------------------------------------------------------------------------------------------
-    llm_strategy = LLMExtractionStrategy(
+
+    """llm_strategy = LLMExtractionStrategy(
         llm_config=LLMConfig(
             provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")
         ),
@@ -42,11 +67,13 @@ async def crawl_jobs():
         verbose=True,
         input_format="html",
     )
+    )"""
     # -------------------------------------------------------------------------------------------------------------------------
     # Crawler configuration and execution
     # -------------------------------------------------------------------------------------------------------------------------
     async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
+
             if page_number > 4:  # Limit to 10 pages
                 print("Reached the maximum number of pages to crawl.")
                 break
@@ -56,7 +83,7 @@ async def crawl_jobs():
                 config=CrawlerRunConfig(
                     exclude_external_links=True,
                     word_count_threshold=20,
-                    extraction_strategy=llm_strategy,
+                    # extraction_strategy=llm_strategy,
                     js_code="window.scrollTo(0, document.body.scrollHeight);",
                     session_id="naukri_session",
                     css_selector=CSS_SELECTOR,
@@ -68,32 +95,74 @@ async def crawl_jobs():
                 print(f"Failed to crawl {url}: {result.error}")
                 continue
 
-            print(result.extracted_content)
+            html_extractable = (
+                result.fit_html
+            )  # result in extratable friendly html format
+            soup = BeautifulSoup(html_extractable, "html.parser")
+            for wrapper in soup.find_all("div", class_="srp-jobtuple-wrapper"):
+                # Title (skip entirely if missing)
+                title_tag = wrapper.find("a", class_="title")
+                if not title_tag:
+                    continue
+                title = title_tag.get_text(strip=True)
 
-            if not result.extracted_content:
-                print(f"No content extracted from {url}. Stopping the crawl.")
-                page_number += 1
-                continue
+                # Company
+                # comp_tag = wrapper.find('a', class_='comp-name mw-25')
+                comp_tag = wrapper.find("a", class_=re.compile(r"comp"))
+                company = comp_tag.get_text(strip=True) if comp_tag else ""
+                print(title_tag)
+                print(comp_tag)
 
-            extracted_job = json.loads(result.extracted_content)
-            
-            if not extracted_job:
-                print(f"No jobs found on page {page_number}. Stopping the crawl.")
-                page_number += 1
-                continue
-            jobs.append(extracted_job)
-            page_number += 1
+                # Experience
+                exp_tag = wrapper.find(
+                    "span",
+                    class_="ni-job-tuple-icon ni-job-tuple-icon-srp-experience exp",
+                )
+                experience = exp_tag.get_text(strip=True) if exp_tag else ""
+                print(exp_tag)
 
-            await asyncio.sleep(2)
-        """if jobs:
+                # Location
+                loc_tag = wrapper.find(
+                    "span",
+                    class_="ni-job-tuple-icon ni-job-tuple-icon-srp-location loc",
+                )  # ni-job-tuple-icon ni-job-tuple-icon-srp-location loc
+                location = loc_tag.get_text(strip=True) if loc_tag else ""
+                print(loc_tag)
+
+                # Description
+                desc_tag = wrapper.find(
+                    "span",
+                    class_="job-desc ni-job-tuple-icon ni-job-tuple-icon-srp-description",
+                )
+                description = desc_tag.get_text(strip=True) if desc_tag else ""
+
+                # Skills (might be an empty list)
+                skills = [
+                    li.get_text(strip=True)
+                    for li in wrapper.find_all("li", class_="tag-li")
+                ]
+
+                jobs.append(
+                    {
+                        "title": title,
+                        "company": company,
+                        "experience": experience,
+                        "location": location,
+                        "job_desc": description,
+                        "skills": skills,
+                    }
+                )
+
+            page_number = page_number + 1
+            await asyncio.sleep(1000)
+        if jobs:
             field_names = Job.model_fields.keys()
             with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=field_names)
                 writer.writeheader()
-                for job in jobs:
-                    writer.writerow(job)"""
+                writer.writerows(jobs)
+            print(f"Extracted {len(jobs)} jobs and saved to jobs.csv")
 
-        llm_strategy.show_usage()
         print(jobs)
 
 
