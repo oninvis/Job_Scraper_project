@@ -1,3 +1,6 @@
+# -------------------------------------------------------------------------------------------------------------------------
+# Necessary imports and configurations for the job crawler
+# -------------------------------------------------------------------------------------------------------------------------
 import json
 import os
 from typing import List, Set, Tuple
@@ -18,13 +21,15 @@ from crawl4ai import (
 
 load_dotenv()
 
-def is_complete_job(job: dict, required_keys: list) -> bool:
-    return all(key in job for key in required_keys)
 
+# -------------------------------------------------------------------------------------------------------------------------
 async def crawl_jobs():
     browser_config = BrowserConfig(headless=False, verbose=True)
     page_number = 1
     jobs = []
+    # -------------------------------------------------------------------------------------------------------------------------
+    # LLM extraction strategy configuration
+    # -------------------------------------------------------------------------------------------------------------------------
     llm_strategy = LLMExtractionStrategy(
         llm_config=LLMConfig(
             provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")
@@ -37,7 +42,9 @@ async def crawl_jobs():
         verbose=True,
         input_format="html",
     )
-
+    # -------------------------------------------------------------------------------------------------------------------------
+    # Crawler configuration and execution
+    # -------------------------------------------------------------------------------------------------------------------------
     async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
             if page_number > 4:  # Limit to 10 pages
@@ -56,21 +63,24 @@ async def crawl_jobs():
                     wait_for=CSS_SELECTOR,
                 ),
             )
+
             if not result.success:
                 print(f"Failed to crawl {url}: {result.error}")
                 continue
+
             print(result.extracted_content)
+
             if not result.extracted_content:
                 print(f"No content extracted from {url}. Stopping the crawl.")
+                page_number += 1
                 continue
-            '''
-            if not is_complete_job(result.extracted_content, REQUIRED_KEYS):
-                print(f"Incomplete job data extracted from {url}. Stopping the crawl.")
-                continue'''
+
             extracted_job = json.loads(result.extracted_content)
+            
             if not extracted_job:
                 print(f"No jobs found on page {page_number}. Stopping the crawl.")
-                break
+                page_number += 1
+                continue
             jobs.append(extracted_job)
             page_number += 1
 
@@ -85,6 +95,9 @@ async def crawl_jobs():
 
         llm_strategy.show_usage()
         print(jobs)
+
+
+# -------------------------------------------------------------------------------------------------------------------------
 
 
 async def main():
