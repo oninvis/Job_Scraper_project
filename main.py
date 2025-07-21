@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import asyncio
 import csv
 
+
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -16,45 +17,57 @@ from crawl4ai import (
 )
 
 load_dotenv()
-extraction_strategy = LLMExtractionStrategy(
-    LLMConfig(provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")),
-    schema=Job.model_json_schema(),
-    extraction_type="schema",
-    instruction=(
-        'Extract all the job objects "title", "company", "experience", "location", "job_desc", and "skills" from the given content. '
-    ),
-    verbose=True,
-    input_format="markdown",
-)
 
+def is_complete_job(job: dict, required_keys: list) -> bool:
+    return all(key in job for key in required_keys)
 
 async def crawl_jobs():
     browser_config = BrowserConfig(headless=False, verbose=True)
-    page_number = 0
+    page_number = 1
     jobs = []
+    llm_strategy = LLMExtractionStrategy(
+        llm_config=LLMConfig(
+            provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")
+        ),
+        schema=Job.model_json_schema(),
+        extraction_type="schema",
+        instruction=(
+            'Extract all the job objects "title", "company", "experience", "location", "job-description", and "skills" from the given content if found and if objects "title", "company", "experience", "location", "job-description" are not found then return " " and if skills are not found then return empty list.  '
+        ),
+        verbose=True,
+        input_format="html",
+    )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        while page_number < 10:
+        while True:
+            if page_number > 4:  # Limit to 10 pages
+                print("Reached the maximum number of pages to crawl.")
+                break
             url = f"{BASE_URL}-{page_number}"
             result = await crawler.arun(
                 url=url,
-                run_config=CrawlerRunConfig(
-                    extraction_strategy=extraction_strategy,
-                    # cache_mode='bypass',  # Bypass cache for fresh content
-                    css_selector=CSS_SELECTOR,  # CSS selector to target job listings
-                    verbose=True,  # Enable verbose logging
-                    wait_for=CSS_SELECTOR,  # Wait for the content to load
-                    scan_full_page=True,  # Scan the full page for content
-                    scroll_delay=1,
-                )
+                config=CrawlerRunConfig(
+                    exclude_external_links=True,
+                    word_count_threshold=20,
+                    extraction_strategy=llm_strategy,
+                    js_code="window.scrollTo(0, document.body.scrollHeight);",
+                    session_id="naukri_session",
+                    css_selector=CSS_SELECTOR,
+                    wait_for=CSS_SELECTOR,
+                ),
             )
             if not result.success:
                 print(f"Failed to crawl {url}: {result.error}")
-                break
+                continue
+            print(result.extracted_content)
             if not result.extracted_content:
                 print(f"No content extracted from {url}. Stopping the crawl.")
-                break
-            extracted_job = json.load(result.extracted_content)
+                continue
+            '''
+            if not is_complete_job(result.extracted_content, REQUIRED_KEYS):
+                print(f"Incomplete job data extracted from {url}. Stopping the crawl.")
+                continue'''
+            extracted_job = json.loads(result.extracted_content)
             if not extracted_job:
                 print(f"No jobs found on page {page_number}. Stopping the crawl.")
                 break
@@ -62,18 +75,21 @@ async def crawl_jobs():
             page_number += 1
 
             await asyncio.sleep(2)
-        if jobs:
+        """if jobs:
             field_names = Job.model_fields.keys()
             with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=field_names)
                 writer.writeheader()
                 for job in jobs:
-                    writer.writerow(job)
-        extraction_strategy.show_usage()
+                    writer.writerow(job)"""
+
+        llm_strategy.show_usage()
+        print(jobs)
 
 
 async def main():
     await crawl_jobs()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     asyncio.run(main())

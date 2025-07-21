@@ -8,13 +8,13 @@ class Job(BaseModel):
     skills: list[str]
 
 BASE_URL = 'https://www.naukri.com/it-jobs'
-#CSS_SELECTOR = '[class^="srp-jobtuple-wrapper"]'
-CSS_SELECTOR = '[class^="styles_middle-section-container"]'
+CSS_SELECTOR = '[class^=srp-jobtuple-wrapper]'
 REQUIRED_KEYS = [
     'title',
     'company',
     'experience',
-    'job-desc',
+    'job-description',
     'skills'
 ]
+
 
