@@ -114,32 +114,25 @@ async def crawl_jobs():
                 print(comp_tag)
 
                 # Experience
-                exp_tag = wrapper.find(
-                    "span",
-                    class_="ni-job-tuple-icon ni-job-tuple-icon-srp-experience exp",
-                )
+                exp_tag = wrapper.find("span", class_=re.compile(r"\bsrp-experience\b"))
                 experience = exp_tag.get_text(strip=True) if exp_tag else ""
                 print(exp_tag)
 
                 # Location
                 loc_tag = wrapper.find(
-                    "span",
-                    class_="ni-job-tuple-icon ni-job-tuple-icon-srp-location loc",
+                    "span", class_=re.compile(r"\bsrp-location\b")
                 )  # ni-job-tuple-icon ni-job-tuple-icon-srp-location loc
                 location = loc_tag.get_text(strip=True) if loc_tag else ""
                 print(loc_tag)
 
                 # Description
-                desc_tag = wrapper.find(
-                    "span",
-                    class_="job-desc ni-job-tuple-icon ni-job-tuple-icon-srp-description",
-                )
+                desc_tag = wrapper.find("span", class_=re.compile(r"\bjob-desc\b"))
                 description = desc_tag.get_text(strip=True) if desc_tag else ""
 
                 # Skills (might be an empty list)
                 skills = [
                     li.get_text(strip=True)
-                    for li in wrapper.find_all("li", class_="tag-li")
+                    for li in wrapper.find_all("li", class_=re.compile(r"\btag-li\b"))
                 ]
 
                 jobs.append(
