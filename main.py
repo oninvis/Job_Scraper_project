@@ -23,6 +23,12 @@ from crawl4ai import (
 load_dotenv()
 BASE_URL = "https://www.naukri.com/"
 
+# -----------------------------------------------------------------------------
+# Helper for safe .get_text()
+# -----------------------------------------------------------------------------
+def text_or(el, default=""):
+    return el.get_text(strip=True) if el else default
+
 
 def change_base_url(company: str = None, location: str = None, profession: str = None):
     global BASE_URL
@@ -48,42 +54,22 @@ change_base_url(profession="datascience")  # Example usage, change as needed
 
 # -------------------------------------------------------------------------------------------------------------------------
 async def crawl_jobs():
-    browser_config = BrowserConfig(headless=False, verbose=True)
+    browser_config = BrowserConfig(headless=True, verbose=True)
     page_number = 1
     jobs = []
-    # -------------------------------------------------------------------------------------------------------------------------
-    # LLM extraction strategy configuration
-    # -------------------------------------------------------------------------------------------------------------------------
 
-    """llm_strategy = LLMExtractionStrategy(
-        llm_config=LLMConfig(
-            provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")
-        ),
-        schema=Job.model_json_schema(),
-        extraction_type="schema",
-        instruction=(
-            'Extract all the job objects "title", "company", "experience", "location", "job-description", and "skills" from the given content if found and if objects "title", "company", "experience", "location", "job-description" are not found then return " " and if skills are not found then return empty list.  '
-        ),
-        verbose=True,
-        input_format="html",
-    )
-    )"""
-    # -------------------------------------------------------------------------------------------------------------------------
-    # Crawler configuration and execution
-    # -------------------------------------------------------------------------------------------------------------------------
     async with AsyncWebCrawler(config=browser_config) as crawler:
         while True:
-
-            if page_number > 2:  # Limit to 10 pages
+            if page_number > 2:  # Limit to 2 pages for testing
                 print("Reached the maximum number of pages to crawl.")
                 break
+
             url = f"{BASE_URL}-{page_number}"
             result = await crawler.arun(
                 url=url,
                 config=CrawlerRunConfig(
                     exclude_external_links=True,
                     word_count_threshold=20,
-                    # extraction_strategy=llm_strategy,
                     js_code="window.scrollTo(0, document.body.scrollHeight);",
                     session_id="naukri_session",
                     css_selector=CSS_SELECTOR,
@@ -93,72 +79,65 @@ async def crawl_jobs():
 
             if not result.success:
                 print(f"Failed to crawl {url}: {result.error}")
+                page_number += 1
                 continue
 
-            html_extractable = (
-                result.fit_html
-            )  # result in extratable friendly html format
-            soup = BeautifulSoup(html_extractable, "html.parser")
-            for wrapper in soup.find_all("div", class_="srp-jobtuple-wrapper"):
-                # Title (skip entirely if missing)
-                title_tag = wrapper.find("a", class_="title")
-                if not title_tag:
-                    continue
-                title = title_tag.get_text(strip=True)
+            soup = BeautifulSoup(result.html, "html.parser")
 
-                # Company
-                # comp_tag = wrapper.find('a', class_='comp-name mw-25')
-                comp_tag = wrapper.find("a", class_=re.compile(r"comp"))
-                company = comp_tag.get_text(strip=True) if comp_tag else ""
-                print(title_tag)
-                print(comp_tag)
+            for w in soup.select('.srp-jobtuple-wrapper'):
+                # title (skip if missing)
+                title_el = w.select_one('.title') or w.select_one('a[subTitle]')
+                title = text_or(title_el)
+                if not title:
+                    continue  # skip cards with no title
 
-                # Experience
-                exp_tag = wrapper.find("span", class_=re.compile(r"\bsrp-experience\b"))
-                experience = exp_tag.get_text(strip=True) if exp_tag else ""
-                print(exp_tag)
+                # company
+                company_el = w.select_one('a.comp-name') or w.select_one('a[subTitle]')
+                company = text_or(company_el)
 
-                # Location
-                loc_tag = wrapper.find(
-                    "span", class_=re.compile(r"\bsrp-location\b")
-                )  # ni-job-tuple-icon ni-job-tuple-icon-srp-location loc
-                location = loc_tag.get_text(strip=True) if loc_tag else ""
-                print(loc_tag)
+                # experience
+                exp_el = w.select_one('.expwdth') or w.select_one('[class*=srp-experience] .expwdth')
+                experience = text_or(exp_el)
 
-                # Description
-                desc_tag = wrapper.find("span", class_=re.compile(r"\bjob-desc\b"))
-                description = desc_tag.get_text(strip=True) if desc_tag else ""
+                # location
+                loc_el = w.select_one('.locWdth') or w.select_one('[class*=srp-location] .locWdth')
+                location = text_or(loc_el)
 
-                # Skills (might be an empty list)
-                skills = [
-                    li.get_text(strip=True)
-                    for li in wrapper.find_all("li", class_=re.compile(r"\btag-li\b"))
-                ]
+                # description
+                desc_el = w.select_one('.job-desc')
+                description = text_or(desc_el)
 
-                jobs.append(
-                    {
-                        "title": title,
-                        "company": company,
-                        "experience": experience,
-                        "location": location,
-                        "job_desc": description,
-                        "skills": skills,
-                    }
-                )
+                # posted date
+                post_el = w.select_one('.job-post-day')
+                posted = text_or(post_el)
 
-            page_number = page_number + 1
-        if jobs:
-            field_names = Job.model_fields.keys()
-            with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=field_names)
-                writer.writeheader()
-                writer.writerows(jobs)
-            print(f"Extracted {len(jobs)} jobs and saved to jobs.csv")
+                # skills
+                skills = [li.get_text(strip=True) for li in w.select('li[class*=tag-li]')]
 
-        print(jobs)
+                jobs.append({
+                    "title":       title,
+                    "company":     company,
+                    "experience":  experience,
+                    "location":    location,
+                    "description": description,
+                    "posted":      posted,
+                    "skills":      skills
+                })
 
+            page_number += 1
 
-# -------------------------------------------------------------------------------------------------------------------------
+    if jobs:
+        # Dynamically infer the exact columns from the first job dict:
+        field_names = list(jobs[0].keys())
+
+        with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=field_names)
+            writer.writeheader()
+            writer.writerows(jobs)
+
+        print(f"Extracted {len(jobs)} jobs and saved to jobs.csv")
+
+    print(jobs)
 
 
 async def main():
