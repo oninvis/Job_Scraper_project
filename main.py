@@ -10,7 +10,7 @@ import asyncio
 import csv
 import re
 from bs4 import BeautifulSoup
-
+from datetime import datetime, timedelta
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -28,6 +28,52 @@ BASE_URL = "https://www.naukri.com/"
 # -----------------------------------------------------------------------------
 def text_or(el, default=""):
     return el.get_text(strip=True) if el else default
+
+import re
+from datetime import datetime, timedelta
+
+def parse_posted_date(rel: str):
+    """
+    Convert strings like '1 day ago', '3 weeks ago', 'Just now', 
+    or 'Starts in 1-3 months' into a datetime.date.
+    Returns None if it can’t parse.
+    """
+    rel = rel.lower().strip()
+    today = datetime.today()
+
+    if not rel:
+        return None
+    if "just now" in rel:
+        return today.date()
+
+    # X days ago
+    m = re.match(r"(\d+)\s*day", rel)
+    if m:
+        return (today - timedelta(days=int(m.group(1)))).date()
+
+    # X weeks ago
+    m = re.match(r"(\d+)\s*week", rel)
+    if m:
+        return (today - timedelta(weeks=int(m.group(1)))).date()
+
+    # X months ago (approximate as 30 days each)
+    m = re.match(r"(\d+)\s*month", rel)
+    if m:
+        return (today - timedelta(days=30 * int(m.group(1)))).date()
+
+    # Starts in X days / weeks / months
+    m = re.match(r"starts in\s*(\d+)\s*day", rel)
+    if m:
+        return (today + timedelta(days=int(m.group(1)))).date()
+    m = re.match(r"starts in\s*(\d+)\s*week", rel)
+    if m:
+        return (today + timedelta(weeks=int(m.group(1)))).date()
+    m = re.match(r"starts in\s*(\d+)\s*month", rel)
+    if m:
+        return (today + timedelta(days=30 * int(m.group(1)))).date()
+
+    return None
+
 
 
 def change_base_url(company: str = None, location: str = None, profession: str = None):
@@ -109,7 +155,8 @@ async def crawl_jobs():
 
                 # posted date
                 post_el = w.select_one('.job-post-day')
-                posted = text_or(post_el)
+                raw_posted = text_or(post_el)
+                posted = parse_posted_date(raw_posted)
 
                 # skills
                 skills = [li.get_text(strip=True) for li in w.select('li[class*=tag-li]')]
