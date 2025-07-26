@@ -112,98 +112,106 @@ def change_base_url(
 
 
 
-def get_parsed_jobs_naukri(result, jobs):
-    """Parses a Naukri detail‐page (CSS_SELECTOR_naukri_dir_page → div[class*='jd-container'])."""
-    soup = BeautifulSoup(result.html, "html.parser")
-    # the container whose class contains “jd-container”
-    container = soup.select_one("div[class*='jd-container']")
-    if not container:
-        return  # nothing to do
 
-    # TITLE
-    title_el = container.select_one("h1")
+def get_parsed_jobs_naukri(result, jobs):
+    soup = BeautifulSoup(result.html, "html.parser")
+
+    # Title
+    title_el = soup.select_one("h1.styles_jd-header-title__rZwM1")
     title = title_el.get_text(strip=True) if title_el else ""
 
-    # COMPANY
-    comp_el = container.select_one("div[class*='jd-header-comp-name'] a")
+    # Company
+    comp_el = soup.select_one("div.styles_jd-header-comp-name__MvqAI a")
     company = comp_el.get_text(strip=True) if comp_el else ""
 
-    # EXPERIENCE & LOCATION live in the same metadata block
-    experience = ""
-    location = ""
-    for li in container.select("div[class*='jd-header-meta'] li"):
-        txt = li.get_text(" ", strip=True)
-        if "Experience" in txt:
-            experience = txt
-        elif "Location" in txt:
-            location = txt
+    # Location(s)
+    loc_container = soup.select_one("div.styles_jhc__loc___Du2H span.styles_jhc__location__W_pVs")
+    if loc_container:
+        # there may be multiple <a> tags for each city
+        locations = [a.get_text(strip=True) for a in loc_container.select("a")]
+        location = ", ".join(locations)
+    else:
+        location = ""
 
-    # POSTED DATE
-    posted_el = container.select_one("div[class*='other-details'] span")
-    posted = posted_el.get_text(strip=True) if posted_el else ""
+    # Full description
+    desc_el = soup.select_one("div.styles_JDC__dang-inner-html__h0K4t")
+    description = desc_el.get_text("\n", strip=True) if desc_el else ""
+    final_desc = description[:100]
 
-    # DESCRIPTION
-    desc_el = soup.select_one("#jdJobDescMain")
-    description = desc_el.get_text(" ", strip=True) if desc_el else ""
 
-    # SKILLS (key skills tags)
-    skills = [li.get_text(strip=True) for li in soup.select("ul.key-skill-tags li")]
+    # Posted date
+    posted = ""
+    stats = soup.select("div.styles_jhc__jd-stats__KrId0 span.styles_jhc__stat__PgY67")
+    for stat in stats:
+        text = stat.get_text(" ", strip=True)
+        if text.lower().startswith("posted"):
+            # e.g. "Posted: 4 days ago"
+            posted = parse_posted_date(text.split(":", 1)[1].strip())
+            break
 
     jobs.append({
-        "title":       title,
-        "company":     company,
-        "experience":  experience,
-        "location":    location,
-        "posted":      posted,
-        "description": description,
-        "skills":      skills,
+        "title": title,
+        "company": company,
+        "location": location,
+        "description": final_desc,
+        "posted": posted,
     })
+    return jobs
 
+
+
+from bs4 import BeautifulSoup
 
 def get_parsed_jobs_indeed(result, jobs):
-    """Parses an Indeed detail‐page (CSS_SELECTOR_indeed_dir_page → div.jobsearch-JobComponent)."""
+    """
+    Parses an Indeed job-detail page (result.html) and appends a dict with:
+      - title
+      - company
+      - location
+      - salary
+      - description
+      - posted
+    into the given jobs list.
+    """
     soup = BeautifulSoup(result.html, "html.parser")
-    container = soup.select_one("div.jobsearch-JobComponent")
-    if not container:
-        return
 
-    # TITLE
-    title_el = container.select_one("h1.jobsearch-JobInfoHeader-title")
+    # Title
+    title_el = soup.select_one("h1[data-testid='jobsearch-JobInfoHeader-title']")
     title = title_el.get_text(strip=True) if title_el else ""
 
-    # COMPANY
-    comp_el = container.select_one("div.jobsearch-InlineCompanyRating div")
+    # Company
+    comp_el = soup.select_one("div[data-company-name='true'] a")
     company = comp_el.get_text(strip=True) if comp_el else ""
 
-    # LOCATION
-    loc_el = container.select_one("div.jobsearch-JobInfoHeader-subtitle div:last-of-type")
+    # Location
+    loc_el = soup.select_one("div[data-testid='inlineHeader-companyLocation']")
     location = loc_el.get_text(strip=True) if loc_el else ""
 
-    # POSTED DATE (often in the metadata footer)
+    # Salary
+    sal_el = soup.select_one("#salaryInfoAndJobType")
+    salary = sal_el.get_text(strip=True) if sal_el else ""
+
+    # Full description
+    desc_el = soup.select_one("div#jobDescriptionText")
+    description = desc_el.get_text("\n", strip=True) if desc_el else ""
+
+    # Posted date (e.g. "Posted: 4 days ago")
     posted = ""
-    footer = container.select_one("div.jobsearch-JobMetadataFooter")
-    if footer:
-        # the last <span> in that footer is usually the “X days ago”
-        spans = footer.select("span")
-        if spans:
-            posted = spans[-1].get_text(strip=True)
-
-    # DESCRIPTION
-    desc_el = container.select_one("#jobDescriptionText")
-    description = desc_el.get_text(" ", strip=True) if desc_el else ""
-
-    # BENEFITS (if you’d still like to capture them)
-    benefits = [li.get_text(strip=True)
-                for li in container.select("ul.jobsearch-JobDescriptionSection-sectionItem ul li")]
+    post_el = soup.find(string=lambda t: t and t.strip().lower().startswith("posted"))
+    if post_el:
+        # split off the "Posted:" prefix
+        posted = post_el.strip().split(":", 1)[-1].strip()
 
     jobs.append({
         "title":       title,
         "company":     company,
         "location":    location,
-        "posted":      posted,
+        "salary":      salary,
         "description": description,
-        "benefits":    benefits,
+        "posted":      posted,
     })
+    return jobs
+
 
 
 

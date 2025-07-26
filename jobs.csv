@@ -1,11 +1,140 @@
-title,company,experience,location,posted,description,skills
-Technical Lead,Schbang,,,"Technical Lead,",,[]
-DevOps Architect,Seclore,,,"DevOps Consultant / Architect,",,[]
-Enterprise Architect- AWS/Azure,IBM,,,"Technical Architect,",,[]
-Solution Architect,Accenture,,,"Solution Architect,",,[]
-Microsoft Cloud Native Lead,Hexaware Technologies,,,"Cloud System Administration,",,[]
-Associate DevOps Engineer,Momentus Technologies,,,"DevOps Engineer,",,[]
-SF Sales cloud Senior Developer -Entrust Accnt,Rarr Technologies,,,"Full Stack Developer,",,[]
-"Senior Engineer, Cloud Security",Twilio,,,"System Security Engineer,",,[]
-Python Developer,Haystack Analytics,,,"Blockchain Quality Assurance Engineer,",,[]
-Technical Architect,Intellect Design Arena,,,"Technical Architect,",,[]
+title,company,location,salary,description,posted
+AWS Architect,RONSYS TECHNOLOGIES,"Atlanta, GA",,"Job Details
+Location: Atlanta, GA
+TravelReq: Remote
+Tax Term: CON_CORP CON_IND CON_W2
+Length: 6 Months+ extension
+Job Description
+Create a well-informed cloud strategy and manage the adaption process.
+Regularly evaluate cloud applications, hardware, and software.
+Work closely with IT security to monitor the company's cloud privacy.
+Respond to technical issues in a professional and timely manner.
+Offer guidance in infrastructure movement techniques including bulk application transfers into the cloud
+Positive attitude and a strong commitment to delivering quality work.
+Excellent knowledge of cloud computing technologies and current computing trends.
+Effective communication skills (written and verbal) to properly articulate complicated cloud reports to management and other IT development partners.
+Deep knowledge of cloud architecture, cloud native patterns, container management and cloud computing capabilities especially as offered by AWS.
+Deep knowledge of information architecture methodologies; enterprise-wide data architecture for designing and building data lakes, data warehouses, data marts and BI reporting databases.
+Sound knowledge of distributed data architecture concepts such as shading, caching, map-reduce, stream processing & two-phase commits.
+Sound knowledge of data security & compliance.
+AWS specialty certification is a plus
+Visualizing data using tools and libraries to solve business problems is a plus.
+Knowledge of Machine Learning concepts such as KNN, Random Forest, Nave Bayes, and Neural Networks and deploying them on Sagemaker is a plus.",
+AWS Cloud Engineer,Technology Project Managers,"Silver Spring, MD",Full-time,"Cloud Subject Matter Expert/Systems Engineer
+Must be US Citizen or Permanent Resident
+(ONLY PERSONS WITH AMAZON CLOUD MIGRATION/TRANSFORMATION EXPERIENCE AND AWS CERTIFICATIONS NEED APPLY.)
+Overview
+The Cloud PMO requires IT and technical support services to support the PMO in overseeing the efforts of that or other vendors and in reviewing all associated artifacts and deliverables. The Cloud PMO needs for support services are in the following general areas:
+Architectural Framework
+Concept of Operations
+Governance
+Business Processes, Policies and Standards
+Cloud Subject Matter Expertise
+Security
+Roles and Responsibilities
+Provide cloud engineering support services
+Cloud transition planning for the operational implementation of Cloud projects and metadata gathering
+Analysis of technical options available for incorporation into the enterprise cloud solution and enabling delivery of the most technically sound and scalable solution
+Infrastructure engineering with an emphasis on modern, cloud infrastructure, hybrid cloud models, and platform services
+Software engineering, performance engineering, integration testing, and release and deployment management
+Minimum Requirements
+Bachelor’s Degree in Computer Science or related field
+10+ years of related experience developing Cloud Solutions
+Amazon Web Services (AWS) experience and certifications
+Ability to pass a criminal and credit background check
+On-site as well as potential for remote work
+With decades of experience delivering reliable professional services, TPM's knowledgeable staff have made critical contributions to complex projects for government clients like NASA and NOAA. We analyze problems and formulate critical solutions to drive progress and achieve success.
+Position Type
+Full-Time/Regular
+Please send an email with cover letter, resume and salary requirements to jobs@techpromanagers.com",
+AWS Technical Architect,TeQbeat,"San Francisco Bay Area, CA",,"Good understanding of DW practices BI in general
+Strong SQL Skills Will be working on Ascend.io
+Strong Python skills
+Exposure to AWS Athena and Redshift
+Airflow or similar orchestration would be good
+Good at Data Analysis, Business Requirements gathering and documenting tech requirements
+Architect AWS based solution",
+AWS Cloud Architect,Point72,"55 Hudson Yards 10th FL, New York, NY 10001","$200,000 - $250,000 a year","EXPERIENCE
+Experienced Professionals
+LOCATION
+New York
+FOCUS
+Software & System Engineering
+BUSINESS
+Point72
+A Career with Point72's Technology Team
+As Point72 reimagines the future of investing, our Technology group is constantly improving our company’s IT infrastructure, positioning us at the forefront of a rapidly evolving technology landscape. We’re a team of experts experimenting, discovering new ways to harness the power of open-source solutions, and embracing enterprise agile methodology. We encourage professional development to ensure you bring innovative ideas to our products while satisfying your own intellectual curiosity.
+What you’ll do
+Design and implement AWS cloud architectures that meet business requirements and align with best practices.
+Collaborate with development, operations, and security teams to ensure seamless integration and deployment of cloud solutions.
+Evaluate and recommend AWS services and tools to enhance the performance, security, and cost-efficiency of our cloud infrastructure.
+Develop and maintain cloud architecture documentation, including diagrams, standards, and guidelines.
+Implement and manage infrastructure as code (IaC) using tools such as Terraform or AWS CloudFormation.
+Monitor and optimize cloud resource utilization to ensure cost-effectiveness and performance.
+Provide technical leadership and mentorship to team members and stakeholders on AWS cloud technologies.
+Ensure compliance with security and regulatory requirements in all cloud deployments.
+Stay up to date with the latest AWS services, features, and best practices.
+What’s required
+You should have a deep understanding of AWS services and architecture with a proven track record of designing and implementing scalable, secure, and cost-effective cloud solutions. Specifically, you should have:
+Bachelor’s degree in computer science, information technology, or a related field
+5+ years of experience in cloud architecture and design, with a focus on AWS
+Strong proficiency in AWS services such as EC2, S3, RDS, Lambda, VPC, IAM, and CloudWatch
+Experience with infrastructure as code (IaC) tools like Terraform or AWS CloudFormation
+Solid understanding of networking, security, and identity management in AWS
+Excellent problem-solving skills and attention to detail
+Strong communication and collaboration skills
+AWS Certified Solutions Architect – Professional or equivalent certification
+Commitment to the highest ethical standards
+We take care of our people
+We invest in our people, their careers, their health, and their well-being. When you work here, we provide:
+Fully-paid health care benefits
+Generous parental and family leave policies
+Mental and physical wellness programs
+Volunteer opportunities
+Non-profit matching gift program
+Support for employee-led affinity groups representing women, minorities and the LGBT+ community
+Tuition assistance
+A 401(k) savings program with an employer match and more
+About Point72
+Point72 is a leading global alternative investment firm led by Steven A. Cohen. Building on more than 30 years of investing experience, Point72 seeks to deliver superior returns for its investors through fundamental and systematic investing strategies across asset classes and geographies. We aim to attract and retain the industry’s brightest talent by cultivating an investor-led culture and committing to our people’s long-term growth. For more information, visit
+www.Point72.com
+.
+The annual base salary range for this role is $200,000-$250,000 (USD) , which does not include discretionary bonus compensation or our comprehensive benefits package. Actual compensation offered to the successful candidate may vary from posted hiring range based upon geographic location, work experience, education, and/or skill level, among other things.",
+AWS GovCloud Systems Engineer,Accenture Federal Services,"Chantilly, VA","$93,400 - $176,200 a year","At Accenture Federal Services, nothing matters more than helping the US federal government make the nation stronger and safer and life better for people. Our 13,000+ people are united in a shared purpose to pursue the limitless potential of technology and ingenuity for clients across defense, national security, public safety, civilian, and military health organizations.
+Join Accenture Federal Services, a technology company and part of global Accenture, to do work that matters in a collaborative and caring community, where you feel like you belong and are empowered to grow, learn and thrive through hands-on experience, certifications, industry training and more.
+Join us to drive positive, lasting change that moves missions and the government forward!
+We are:
+Accenture Federal Services, bringing together commercial innovation with the latest technology to unleash the potential for our federal clients. Every day we bring bold thinking and diverse disciplines to solve problems in new ways. Ready to learn as much as you can We'll give you numerous opportunities from informal training sessions to courses and certifications to keep your tech smarts sharp.
+You are:
+A Systems Engineer who can work in a collaborative environment to build, enhance, and maintain technical architecture that meet our customers' needs. The ideal candidate will have a solid background in systems architectural engineering and be familiar with working in an agile team and will work with developers and engineers to enable hosting and management of software development applications where proper access, uptime, and maintenance is provided.
+The work:
+The Systems Engineer will be embedded within an agile team working closely with client Product Management and will be involved in providing clients with insights, knowledge, and recommendations to help inform decisions, requiring exceptional client communication skills and expectation management.
+Here's what you need:
+Bachelor's Degree required
+3+ years in AWS GovCloud Infrastructure & Microservices (Kubernetes (EKS), AmazonMQ, Lambda)
+General troubleshooting supporting Kubernetes (EKS), user access management, virtual machines, VPCs, on-premis networks, Linux, Windows
+Automation experience with infrastructure-as-Code (IaC) via Terraform
+TS Clearance
+Bonus Points if you Have:
+Experience with NIST Security Standards and Controls to support ATO Requirements
+SAFe certified
+Experience Working on a SAFe program
+#clearancejobs
+What We Believe
+As a company wholly dedicated to serving the US federal government, we bring together the best talent to help reinvent how federal agencies operate and deliver greater value for their mission and the American people. We have an unwavering commitment to creating a culture in which all our people are respected, feel a sense of belonging, and have equal opportunity. As a business imperative, every person at Accenture Federal Services has the responsibility to create and sustain a culture where everyone feels welcomed and included. This is grounded in our core values and our experience that hiring and developing great people who reflect different perspectives, experiences, and backgrounds is key to driving innovation and delivering the results that our clients and the country count on.
+Equal Employment Opportunity Statement
+We believe that no one should be discriminated against because of their differences. All employment decisions shall be made without regard to age, race, creed, color, religion, sex, national origin, ancestry, disability status, veteran status, sexual orientation, gender identity or expression, genetic information, marital status, citizenship status or any other basis as protected by federal, state, or local law. Our rich diversity makes us more innovative, more competitive, and more creative, which helps us better serve our clients and our communities. For details, view a copy of the
+Accenture Federal Services Equal Opportunity Policy Statement.
+Accenture Federal Services is an Equal Employment Opportunity employer. Additionally, as an Affirmative Action Employer for Veterans and Individuals with Disabilities, Accenture Federal Services is committed to providing veteran employment opportunities to our service men and women.
+Requesting An Accommodation
+Accenture Federal Services is committed to providing equal employment opportunities for persons with disabilities or religious observances, including reasonable accommodation when needed. If you are hired by Accenture Federal Services and require accommodation to perform the essential functions of your role, you will be asked to participate in our reasonable accommodation process. Accommodations made to facilitate the recruiting process are not a guarantee of future or continued accommodations once hired.
+If you
+are being considered for employment opportunities with Accenture Federal Services and need an accommodation for a disability or religious observance during the interview process or for the job you are interviewing for, please speak with your recruiter.
+Other Employment Statements
+Applicants for employment in the US must have work authorization that does not now or in the future require sponsorship of a visa for employment authorization in the United States.
+Candidates who are currently employed by a client of Accenture Federal Services or an affiliated Accenture business may not be eligible for consideration.
+Job candidates will not be obligated to disclose sealed or expunged records of conviction or arrest as part of the hiring process.
+The Company will not discharge or in any other manner discriminate against employees or applicants because they have inquired about, discussed, or disclosed their own pay or the pay of another employee or applicant. Additionally, employees who have access to the compensation information of other employees or applicants as a part of their essential job functions cannot disclose the pay of other employees or applicants to individuals who do not otherwise have access to compensation information, unless the disclosure is (a) in response to a formal complaint or charge, (b) in furtherance of an investigation, proceeding, hearing, or action, including an investigation conducted by the employer, or (c) consistent with the Company's legal duty to furnish information.
+California requires additional notifications for applicants and employees. If you are a California resident, live in or plan to work from Los Angeles County upon being hired for this position, please
+click here
+for additional important information.",

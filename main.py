@@ -23,7 +23,7 @@ from config import (
 import parser_functions as pf
 
 company, location, profession, website_name, job_number = pf.user_params(
-    website_name="naukri", profession="it", job_number=10 , company='aws' , location='mumbai'
+    website_name="indeed", profession="it", job_number=5 , company='aws' , location='mumbai'
 )
 BASE_URL, input_url = pf.change_base_url(company, location, profession, website_name)
 
