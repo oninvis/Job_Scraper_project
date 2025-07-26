@@ -3,7 +3,13 @@ import re
 from bs4 import BeautifulSoup
 import csv
 import json
-from config import CSS_SELECTOR_indeed_dir_page , CSS_SELECTOR_naukri_dir_page, CSS_SELECTOR_indeed, CSS_SELECTOR_naukri
+from config import (
+    CSS_SELECTOR_indeed_dir_page,
+    CSS_SELECTOR_naukri_dir_page,
+    CSS_SELECTOR_indeed,
+    CSS_SELECTOR_naukri,
+)
+
 
 def user_params(
     company: str = None,
@@ -69,7 +75,7 @@ def change_base_url(
     profession: str = None,
     website_name: str = None,
 ):
-    if website_name == "naukri":
+    if website_name.lower() == "naukri":
         input_url = "https://www.naukri.com"
         if company and location and profession:
             BASE_URL = f"{input_url}/{profession}-{company}-jobs-in-{location}"
@@ -87,8 +93,8 @@ def change_base_url(
             BASE_URL = f"{input_url}/{profession}-jobs"
         else:
             BASE_URL = input_url
-        return BASE_URL , input_url
-    elif website_name == "indeed":
+        return BASE_URL, input_url
+    elif website_name.lower() == "indeed":
         input_url = "https://www.indeed.com"
         if company and location and profession:
             BASE_URL = f"{input_url}/jobs?q={profession}+{company}&l={location}"
@@ -106,11 +112,39 @@ def change_base_url(
             BASE_URL = f"{input_url}/jobs?q={profession}"
         else:
             BASE_URL = input_url
-        return BASE_URL , input_url
+        return BASE_URL, input_url
+    elif website_name.lower() == "linkedin":
+        input_url = "https://www.linkedin.com"
+        # LinkedIn job search endpoint
+        #   /jobs/search?keywords=<…>&location=<…>
+
+        if company and location and profession:
+            BASE_URL = (
+                f"{input_url}/jobs/search?"
+                f"keywords={profession}%20{company}&location={location}"
+            )
+        elif company and profession:
+            BASE_URL = f"{input_url}/jobs/search?" f"keywords={profession}%20{company}"
+        elif location and profession:
+            BASE_URL = (
+                f"{input_url}/jobs/search?" f"keywords={profession}&location={location}"
+            )
+        elif company and location:
+            BASE_URL = (
+                f"{input_url}/jobs/search?" f"keywords={company}&location={location}"
+            )
+        elif company:
+            BASE_URL = f"{input_url}/jobs/search?" f"keywords={company}"
+        elif location:
+            BASE_URL = f"{input_url}/jobs/search?" f"location={location}"
+        elif profession:
+            BASE_URL = f"{input_url}/jobs/search?" f"keywords={profession}"
+        else:
+            BASE_URL = input_url
+
+        return BASE_URL, input_url
     else:
         return None
-
-
 
 
 def get_parsed_jobs_naukri(result, jobs):
@@ -125,7 +159,9 @@ def get_parsed_jobs_naukri(result, jobs):
     company = comp_el.get_text(strip=True) if comp_el else ""
 
     # Location(s)
-    loc_container = soup.select_one("div.styles_jhc__loc___Du2H span.styles_jhc__location__W_pVs")
+    loc_container = soup.select_one(
+        "div.styles_jhc__loc___Du2H span.styles_jhc__location__W_pVs"
+    )
     if loc_container:
         # there may be multiple <a> tags for each city
         locations = [a.get_text(strip=True) for a in loc_container.select("a")]
@@ -138,7 +174,6 @@ def get_parsed_jobs_naukri(result, jobs):
     description = desc_el.get_text("\n", strip=True) if desc_el else ""
     final_desc = description[:100]
 
-
     # Posted date
     posted = ""
     stats = soup.select("div.styles_jhc__jd-stats__KrId0 span.styles_jhc__stat__PgY67")
@@ -149,18 +184,20 @@ def get_parsed_jobs_naukri(result, jobs):
             posted = parse_posted_date(text.split(":", 1)[1].strip())
             break
 
-    jobs.append({
-        "title": title,
-        "company": company,
-        "location": location,
-        "description": final_desc,
-        "posted": posted,
-    })
+    jobs.append(
+        {
+            "title": title,
+            "company": company,
+            "location": location,
+            "description": final_desc,
+            "posted": posted,
+        }
+    )
     return jobs
 
 
-
 from bs4 import BeautifulSoup
+
 
 def get_parsed_jobs_indeed(result, jobs):
     """
@@ -194,6 +231,7 @@ def get_parsed_jobs_indeed(result, jobs):
     # Full description
     desc_el = soup.select_one("div#jobDescriptionText")
     description = desc_el.get_text("\n", strip=True) if desc_el else ""
+    description = description[:100]  # limit to first 100 chars
 
     # Posted date (e.g. "Posted: 4 days ago")
     posted = ""
@@ -202,17 +240,68 @@ def get_parsed_jobs_indeed(result, jobs):
         # split off the "Posted:" prefix
         posted = post_el.strip().split(":", 1)[-1].strip()
 
-    jobs.append({
-        "title":       title,
-        "company":     company,
-        "location":    location,
-        "salary":      salary,
-        "description": description,
-        "posted":      posted,
-    })
+    jobs.append(
+        {
+            "title": title,
+            "company": company,
+            "location": location,
+            "salary": salary,
+            "description": description,
+            "posted": posted,
+        }
+    )
     return jobs
 
 
+# parser_functions.py
+
+
+# ─── selectors for the search‐results and detail pages ─────────────────────────
+
+
+def get_parsed_jobs_linkedin(result, jobs):
+    """
+    Parse a LinkedIn job‐detail page (result.html) and append a dict to jobs.
+    """
+    soup = BeautifulSoup(result.html, "html.parser")
+
+    # Title
+    title_el = soup.select_one("h1.topcard__title")
+    title = title_el.get_text(strip=True) if title_el else ""
+
+    # Company
+    comp_el = soup.select_one("a.topcard__org-name-link")
+    if not comp_el:
+        # fallback if LinkedIn uses a span instead
+        comp_el = soup.select_one("span.topcard__flavor")
+    company = comp_el.get_text(strip=True) if comp_el else ""
+
+    # Location
+    loc_el = soup.select_one("span.topcard__flavor--bullet")
+    location = loc_el.get_text(strip=True) if loc_el else ""
+
+    # Posted date
+    posted_el = soup.select_one("span.posted-time-ago__text")
+    posted = posted_el.get_text(strip=True) if posted_el else ""
+
+    # Full description
+    desc_el = soup.select_one("div.show-more-less-html__markup")
+    if not desc_el:
+        # another common wrapper
+        desc_el = soup.select_one("div.description__text")
+    description = desc_el.get_text("\n", strip=True) if desc_el else ""
+    description = description[:100]  # limit to first 100 chars
+
+    jobs.append(
+        {
+            "title": title,
+            "company": company,
+            "location": location,
+            "description": description,
+            "posted": posted,
+        }
+    )
+    return jobs
 
 
 def convert_to_csv(jobs, filename="jobs.csv"):
@@ -229,4 +318,3 @@ def convert_to_csv(jobs, filename="jobs.csv"):
         writer.writerows(jobs)
 
     print(f"Extracted {len(jobs)} jobs and saved to {filename}")
-
