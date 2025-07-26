@@ -1,190 +1,122 @@
 # -------------------------------------------------------------------------------------------------------------------------
 # Necessary imports and configurations for the job crawler
 # -------------------------------------------------------------------------------------------------------------------------
-import json
-import os
-from typing import List, Set, Tuple
-from config import Job, CSS_SELECTOR, REQUIRED_KEYS
-from dotenv import load_dotenv
 import asyncio
 import csv
-import re
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
     CacheMode,
     CrawlerRunConfig,
-    LLMExtractionStrategy,
     LLMConfig,
+    LLMExtractionStrategy,
 )
+from bs4 import BeautifulSoup
 
-load_dotenv()
-BASE_URL = "https://www.naukri.com/"
+from config import (
+    CSS_SELECTOR_indeed,
+    CSS_SELECTOR_naukri,
+    Job,
+    CSS_SELECTOR_indeed_dir_page,
+    CSS_SELECTOR_naukri_dir_page,
+)
+import parser_functions as pf
 
-# -----------------------------------------------------------------------------
-# Helper for safe .get_text()
-# -----------------------------------------------------------------------------
-def text_or(el, default=""):
-    return el.get_text(strip=True) if el else default
-
-import re
-from datetime import datetime, timedelta
-
-def parse_posted_date(rel: str):
-    """
-    Convert strings like '1 day ago', '3 weeks ago', 'Just now', 
-    or 'Starts in 1-3 months' into a datetime.date.
-    Returns None if it can’t parse.
-    """
-    rel = rel.lower().strip()
-    today = datetime.today()
-
-    if not rel:
-        return None
-    if "just now" in rel:
-        return today.date()
-
-    # X days ago
-    m = re.match(r"(\d+)\s*day", rel)
-    if m:
-        return (today - timedelta(days=int(m.group(1)))).date()
-
-    # X weeks ago
-    m = re.match(r"(\d+)\s*week", rel)
-    if m:
-        return (today - timedelta(weeks=int(m.group(1)))).date()
-
-    # X months ago (approximate as 30 days each)
-    m = re.match(r"(\d+)\s*month", rel)
-    if m:
-        return (today - timedelta(days=30 * int(m.group(1)))).date()
-
-    # Starts in X days / weeks / months
-    m = re.match(r"starts in\s*(\d+)\s*day", rel)
-    if m:
-        return (today + timedelta(days=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*week", rel)
-    if m:
-        return (today + timedelta(weeks=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*month", rel)
-    if m:
-        return (today + timedelta(days=30 * int(m.group(1)))).date()
-
-    return None
-
-
-
-def change_base_url(company: str = None, location: str = None, profession: str = None):
-    global BASE_URL
-    if company:
-        BASE_URL = f"{BASE_URL}{company}-jobs"
-    elif location:
-        BASE_URL = f"{BASE_URL}jobs-in-{location}"
-    elif profession:
-        BASE_URL = f"{BASE_URL}{profession}-jobs"
-    elif company and location:
-        BASE_URL = f"{BASE_URL}{company}-jobs-in-{location}"
-    elif company and profession:
-        BASE_URL = f"{BASE_URL}{company}-{profession}-jobs"
-    elif location and profession:
-        BASE_URL = f"{BASE_URL}jobs-in-{location}-{profession}"
-    elif company and location and profession:
-        BASE_URL = f"{BASE_URL}{profession}-{company}-jobs-in-{location}"
-    return BASE_URL
-
-
-change_base_url(profession="datascience")  # Example usage, change as needed
+company, location, profession, website_name, job_number = pf.user_params(
+    website_name="naukri", profession="it", job_number=10 , company='aws' , location='mumbai'
+)
+BASE_URL, input_url = pf.change_base_url(company, location, profession, website_name)
 
 
 # -------------------------------------------------------------------------------------------------------------------------
 async def crawl_jobs():
-    browser_config = BrowserConfig(headless=True, verbose=True)
+    browser_config = BrowserConfig(headless=False, verbose=True)
     page_number = 1
     jobs = []
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
+        jobs_links = []
         while True:
-            if page_number > 2:  # Limit to 2 pages for testing
-                print("Reached the maximum number of pages to crawl.")
-                break
-
-            url = f"{BASE_URL}-{page_number}"
             result = await crawler.arun(
-                url=url,
+                url=(
+                    f"{BASE_URL}-{page_number}"
+                    if website_name == "naukri"
+                    else f"{BASE_URL}&start={(page_number - 1) * 10}"
+                ),
                 config=CrawlerRunConfig(
                     exclude_external_links=True,
                     word_count_threshold=20,
                     js_code="window.scrollTo(0, document.body.scrollHeight);",
-                    session_id="naukri_session",
-                    css_selector=CSS_SELECTOR,
-                    wait_for=CSS_SELECTOR,
+                    session_id="job_session",
+                    css_selector=(
+                        CSS_SELECTOR_naukri
+                        if website_name == "naukri"
+                        else CSS_SELECTOR_indeed
+                    ),
+                    wait_for=(
+                        CSS_SELECTOR_naukri
+                        if website_name == "naukri"
+                        else CSS_SELECTOR_indeed
+                    ),
                 ),
             )
-
-            if not result.success:
-                print(f"Failed to crawl {url}: {result.error}")
-                page_number += 1
-                continue
-
             soup = BeautifulSoup(result.html, "html.parser")
+            cards = soup.select(
+                CSS_SELECTOR_naukri if website_name == "naukri" else CSS_SELECTOR_indeed
+            )
+            # print(cards)  # Debugging line to check the cards found 
+            for card in cards:
+                a = card.select_one(
+                    "a.title" if website_name == "naukri" else "h2.jobTitle a"
+                )
+                if not a or not a.get("href"):
+                    continue  # skip this card
+                link = a["href"]
+                full = (
+                    link.startswith("https") and link or "https://www.indeed.com" + link
+                    if website_name == "indeed"
+                    else link.startswith("https")
+                    and link
+                    or "https://www.naukri.com" + link
+                )
+                jobs_links.append(full)
+                if len(jobs_links) >= job_number:
+                    break
+            #print(jobs_links)
+            for job in range(len(jobs_links)):
+                result_dir_page = await crawler.arun(
+                    url=jobs_links[job],
+                    config=CrawlerRunConfig(
+                        exclude_external_links=True,
+                        word_count_threshold=20,
+                        js_code="window.scrollTo(0, document.body.scrollHeight);",
+                        session_id="job_session",
+                        css_selector=(
+                            CSS_SELECTOR_naukri_dir_page
+                            if website_name == "naukri"
+                            else CSS_SELECTOR_indeed_dir_page
+                        ),
+                        wait_for=(
+                            CSS_SELECTOR_naukri_dir_page
+                            if website_name == "naukri"
+                            else CSS_SELECTOR_indeed_dir_page
+                        ),
+                    ),
+                )
+                await asyncio.sleep(2)
 
-            for w in soup.select('.srp-jobtuple-wrapper'):
-                # title (skip if missing)
-                title_el = w.select_one('.title') or w.select_one('a[subTitle]')
-                title = text_or(title_el)
-                if not title:
-                    continue  # skip cards with no title
+                if website_name == "indeed":
+                    pf.get_parsed_jobs_indeed(result_dir_page, jobs)
+                else:
+                    pf.get_parsed_jobs_naukri(result_dir_page, jobs)
 
-                # company
-                company_el = w.select_one('a.comp-name') or w.select_one('a[subTitle]')
-                company = text_or(company_el)
-
-                # experience
-                exp_el = w.select_one('.expwdth') or w.select_one('[class*=srp-experience] .expwdth')
-                experience = text_or(exp_el)
-
-                # location
-                loc_el = w.select_one('.locWdth') or w.select_one('[class*=srp-location] .locWdth')
-                location = text_or(loc_el)
-
-                # description
-                desc_el = w.select_one('.job-desc')
-                description = text_or(desc_el)
-
-                # posted date
-                post_el = w.select_one('.job-post-day')
-                raw_posted = text_or(post_el)
-                posted = parse_posted_date(raw_posted)
-
-                # skills
-                skills = [li.get_text(strip=True) for li in w.select('li[class*=tag-li]')]
-
-                jobs.append({
-                    "title":       title,
-                    "company":     company,
-                    "experience":  experience,
-                    "location":    location,
-                    "description": description,
-                    "posted":      posted,
-                    "skills":      skills
-                })
-
+            if len(jobs) >= job_number:
+                break
             page_number += 1
-
-    if jobs:
-        # Dynamically infer the exact columns from the first job dict:
-        field_names = list(jobs[0].keys())
-
-        with open("jobs.csv", "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=field_names)
-            writer.writeheader()
-            writer.writerows(jobs)
-
-        print(f"Extracted {len(jobs)} jobs and saved to jobs.csv")
+            await asyncio.sleep(5)
 
     print(jobs)
+    pf.convert_to_csv(jobs, "jobs.csv")
 
 
 async def main():
