@@ -92,7 +92,7 @@ def change_base_url(
         elif profession:
             BASE_URL = f"{input_url}/{profession}-jobs"
         else:
-            BASE_URL = input_url
+            BASE_URL = f'{input_url}/jobs'
         return BASE_URL, input_url
     elif website_name.lower() == "indeed":
         input_url = "https://www.indeed.com"
@@ -196,9 +196,6 @@ def get_parsed_jobs_naukri(result, jobs):
     return jobs
 
 
-from bs4 import BeautifulSoup
-
-
 def get_parsed_jobs_indeed(result, jobs):
     """
     Parses an Indeed job-detail page (result.html) and appends a dict with:
@@ -251,13 +248,6 @@ def get_parsed_jobs_indeed(result, jobs):
         }
     )
     return jobs
-
-
-# parser_functions.py
-
-
-# ─── selectors for the search‐results and detail pages ─────────────────────────
-
 
 def get_parsed_jobs_linkedin(result, jobs):
     """
