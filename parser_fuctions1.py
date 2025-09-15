@@ -69,6 +69,109 @@ def parse_posted_date(rel: str):
     return None
 
 
+def _extract_title_from_json_ld(soup, debug=False):
+    """Try to extract title-like fields from JSON-LD blocks.
+    Looks for JobPosting, Article, NewsArticle, WebPage, and generic objects.
+    Returns a cleaned string or "".
+    """
+    def _get_first(d, keys):
+        for k in keys:
+            if isinstance(d, dict) and k in d and isinstance(d[k], str) and d[k].strip():
+                return d[k].strip()
+        return ""
+
+    scripts = soup.find_all("script", attrs={"type": "application/ld+json"})
+    for sc in scripts:
+        try:
+            data = json.loads(sc.string or sc.get_text() or "")
+        except Exception:
+            continue
+
+        # Normalize into iterable of dicts
+        candidates = data if isinstance(data, list) else [data]
+        for obj in candidates:
+            if not isinstance(obj, dict):
+                continue
+
+            atype = obj.get("@type")
+            # Prefer JobPosting -> title/headline/name
+            if atype == "JobPosting":
+                t = _get_first(obj, ["title", "headline", "name"]) or _get_first(obj.get("title", {}), ["text"])  # some sites nest
+                if t:
+                    if debug:
+                        print(f"\nFound title in JSON-LD JobPosting: {t[:100]}")
+                    return t
+
+            # Common content types also carry headline/title
+            if atype in {"Article", "NewsArticle", "BlogPosting", "WebPage"}:
+                t = _get_first(obj, ["headline", "title", "name"]) or _get_first(obj.get("headline", {}), ["text"]) 
+                if t:
+                    if debug:
+                        print(f"\nFound title in JSON-LD {atype}: {t[:100]}")
+                    return t
+
+            # Generic attempt
+            t = _get_first(obj, ["title", "headline", "name"]) or _get_first(obj.get("title", {}), ["text"]) 
+            if t:
+                if debug:
+                    print(f"\nFound title in JSON-LD object: {t[:100]}")
+                return t
+
+    return ""
+
+
+def _extract_title_from_meta(soup, debug=False):
+    """Try a comprehensive set of meta tags for title.
+    Checks OpenGraph, Twitter, itemprop, and a few common vendor tags.
+    Returns string or "".
+    """
+    meta_selectors = [
+        "meta[property='og:title']",
+        "meta[name='og:title']",
+        "meta[name='twitter:title']",
+        "meta[name='sailthru.title']",
+        "meta[itemprop='headline']",
+        "meta[itemprop='title']",
+        "meta[name='title']",
+        "meta[name='hdl']",
+    ]
+    for sel in meta_selectors:
+        el = soup.select_one(sel)
+        if el and (el.get("content") or el.get("value")):
+            t = (el.get("content") or el.get("value") or "").strip()
+            if t:
+                if debug:
+                    print(f"\nFound title in meta tag ({sel}): {t[:100]}")
+                return t
+
+    # Microdata attributes sometimes appear on non-meta tags
+    micro_sel = ["[itemprop='headline']", "[itemprop='name']", "[itemprop='title']"]
+    for sel in micro_sel:
+        el = soup.select_one(sel)
+        if el:
+            t = (el.get("content") or el.get_text(strip=True) or "").strip()
+            if t:
+                if debug:
+                    print(f"\nFound title via itemprop ({sel}): {t[:100]}")
+                return t
+    return ""
+
+
+def _clean_title_text(title: str) -> str:
+    if not title:
+        return ""
+    # Normalize whitespace
+    t = " ".join(title.split())
+    # Strip common site suffixes and job generic words if they are the whole string
+    if t.lower() in {"job", "jobs", "career", "careers", "apply", "application"}:
+        return ""
+    # Remove leading/trailing separators and common site names
+    for site in ["Indeed", "LinkedIn", "Naukri", "Naukri.com"]:
+        if t.endswith(site):
+            t = t[: -len(site)].strip(" -|•:\u2013\u2014")
+    return t
+
+
 def extract_title_with_debug(soup, website_name, debug=True):
     """
     Extract job title with extensive debugging to identify the issue.
@@ -191,6 +294,17 @@ def extract_title_with_debug(soup, website_name, debug=True):
             if title:
                 break
     
+    # Try generic JSON-LD and meta fallbacks before page <title>
+    if not title:
+        json_ld_title = _extract_title_from_json_ld(soup, debug=debug)
+        if json_ld_title:
+            title = json_ld_title
+
+    if not title:
+        meta_title = _extract_title_from_meta(soup, debug=debug)
+        if meta_title:
+            title = meta_title
+
     # Final fallback - look for any reasonable text that could be a title
     if not title:
         # Try to extract from page title
@@ -220,22 +334,17 @@ def extract_title_with_debug(soup, website_name, debug=True):
                 if title.endswith(site):
                     title = title[:-len(site)].strip(" -|")
     
-    # Try meta og:title as last resort
+    # Try meta/twitter/itemprop as absolute last resort (covers sites without <title> semantics)
     if not title:
-        meta_title = soup.find("meta", {"property": "og:title"})
-        if not meta_title:
-            meta_title = soup.find("meta", {"name": "title"})
-        if meta_title and meta_title.get("content"):
-            title = meta_title["content"]
-            if debug:
-                print(f"\nFound title in meta tag: {title}")
+        meta_title = _extract_title_from_meta(soup, debug=debug)
+        if meta_title:
+            title = meta_title
     
     # Clean up the title
     if title:
-        # Remove extra whitespace
-        title = " ".join(title.split())
-        # Check if it's too generic
-        if title.lower() in ["job", "jobs", "career", "careers", "", "apply", "application"]:
+        # Remove extra whitespace and generic single-word titles
+        title = _clean_title_text(title)
+        if not title:
             title = "Title Not Available"
     else:
         title = "Title Not Available"

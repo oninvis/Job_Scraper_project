@@ -23,7 +23,7 @@ import parser_fuctions1 as pf
 company, location, profession, website_name, job_number = pf.user_params(
     website_name="naukri",
     profession='it',
-    job_number=25,
+    job_number=100,
     #company="accenture",
     #location="mumbai",
 )
