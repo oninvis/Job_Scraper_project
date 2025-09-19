@@ -23,7 +23,7 @@ import parser_fuctions1 as pf
 company, location, profession, website_name, job_number = pf.user_params(
     website_name="naukri",
     profession='it',
-    job_number=100,
+    job_number=20,
     #company="accenture",
     #location="mumbai",
 )
@@ -64,7 +64,7 @@ async def crawl_jobs():
                     wait_for=css_selector,
                 ),
             )
-
+            print(result.html)
             soup = BeautifulSoup(result.html, "html.parser")
             cards = soup.select(css_selector)
 
@@ -106,7 +106,10 @@ async def crawl_jobs():
                     ),
                 )
                 await asyncio.sleep(2)
-
+                file_path = "html.txt"
+                with open(file_path, "a", encoding="utf-8") as f:
+                    f.write(result_dir_page.html)
+                    f.write("\n\n")
                 if website_name == "indeed":
                     pf.get_parsed_jobs_indeed(result_dir_page, jobs)
                 elif website_name == "naukri":
