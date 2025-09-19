@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta
-import re
-from bs4 import BeautifulSoup
 import csv
 import json
-from config import (
-    CSS_SELECTOR_indeed_dir_page,
-    CSS_SELECTOR_naukri_dir_page,
-    CSS_SELECTOR_indeed,
-    CSS_SELECTOR_naukri,
-)
+import re
+
+from bs4 import BeautifulSoup
+
+
+# ---------------------------------------------------------------------------
+# User input helpers
+# ---------------------------------------------------------------------------
 
 
 def user_params(
@@ -18,351 +18,189 @@ def user_params(
     website_name: str = None,
     job_number: int = 10,
 ):
+    """Return a tuple that keeps the caller signature tidy."""
     return company, location, profession, website_name, job_number
 
 
-def text_or(el, default=""):
-    return el.get_text(strip=True) if el else default
+# ---------------------------------------------------------------------------
+# Date helpers
+# ---------------------------------------------------------------------------
 
 
-def parse_posted_date(rel: str):
-    """
-    Convert strings like '1 day ago', '3 weeks ago', 'Just now',
-    or 'Starts in 1-3 months' into a datetime.date.
-    Returns None if it can't parse.
+def parse_posted_date(relative_phrase: str):
+    """Convert a relative date string (e.g. '3 days ago') into a date."""
+    if not relative_phrase:
+        return None
 
-    """
-    rel = rel.lower().strip()
+    phrase = relative_phrase.lower().strip()
     today = datetime.today()
 
-    if not rel:
-        return None
-    if "just now" in rel:
+    if "just now" in phrase:
         return today.date()
 
-    # X days ago
-    m = re.match(r"(\d+)\s*day", rel)
-    if m:
-        return (today - timedelta(days=int(m.group(1)))).date()
+    patterns = (
+        (r"^(\d+)\s*day", lambda value: timedelta(days=value)),
+        (r"^(\d+)\s*week", lambda value: timedelta(weeks=value)),
+        (r"^(\d+)\s*month", lambda value: timedelta(days=30 * value)),
+        (r"^starts in\s*(\d+)\s*day", lambda value: -timedelta(days=value)),
+        (r"^starts in\s*(\d+)\s*week", lambda value: -timedelta(weeks=value)),
+        (r"^starts in\s*(\d+)\s*month", lambda value: -timedelta(days=30 * value)),
+    )
 
-    # X weeks ago
-    m = re.match(r"(\d+)\s*week", rel)
-    if m:
-        return (today - timedelta(weeks=int(m.group(1)))).date()
-
-    # X months ago (approximate as 30 days each)
-    m = re.match(r"(\d+)\s*month", rel)
-    if m:
-        return (today - timedelta(days=30 * int(m.group(1)))).date()
-
-    # Starts in X days / weeks / months
-    m = re.match(r"starts in\s*(\d+)\s*day", rel)
-    if m:
-        return (today + timedelta(days=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*week", rel)
-    if m:
-        return (today + timedelta(weeks=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*month", rel)
-    if m:
-        return (today + timedelta(days=30 * int(m.group(1)))).date()
+    for pattern, builder in patterns:
+        match = re.search(pattern, phrase)
+        if match:
+            value = int(match.group(1))
+            delta = builder(value)
+            return (today - delta).date()
 
     return None
 
 
-def _extract_title_from_json_ld(soup, debug=False):
-    """Try to extract title-like fields from JSON-LD blocks.
-    Looks for JobPosting, Article, NewsArticle, WebPage, and generic objects.
-    Returns a cleaned string or "".
-    """
-    def _get_first(d, keys):
-        for k in keys:
-            if isinstance(d, dict) and k in d and isinstance(d[k], str) and d[k].strip():
-                return d[k].strip()
-        return ""
+# ---------------------------------------------------------------------------
+# Title extraction helpers
+# ---------------------------------------------------------------------------
 
-    scripts = soup.find_all("script", attrs={"type": "application/ld+json"})
-    for sc in scripts:
-        try:
-            data = json.loads(sc.string or sc.get_text() or "")
-        except Exception:
-            continue
 
-        # Normalize into iterable of dicts
-        candidates = data if isinstance(data, list) else [data]
-        for obj in candidates:
-            if not isinstance(obj, dict):
-                continue
+SITE_TITLE_SELECTORS = {
+    "naukri": [
+        "section#job_header h1",
+        "h1.styles_jd-header-title__rZwM1",
+        "h1[class*='title']",
+    ],
+    "indeed": [
+        "h1[data-testid='jobsearch-JobInfoHeader-title']",
+        "h1.jobsearch-JobInfoHeader-title",
+        "h1 span[title]",
+    ],
+    "linkedin": [
+        "h1.topcard__title",
+        "h1.jobs-unified-top-card__job-title",
+        "h2.top-card-layout__title",
+    ],
+}
 
-            atype = obj.get("@type")
-            # Prefer JobPosting -> title/headline/name
-            if atype == "JobPosting":
-                t = _get_first(obj, ["title", "headline", "name"]) or _get_first(obj.get("title", {}), ["text"])  # some sites nest
-                if t:
-                    if debug:
-                        print(f"\nFound title in JSON-LD JobPosting: {t[:100]}")
-                    return t
 
-            # Common content types also carry headline/title
-            if atype in {"Article", "NewsArticle", "BlogPosting", "WebPage"}:
-                t = _get_first(obj, ["headline", "title", "name"]) or _get_first(obj.get("headline", {}), ["text"]) 
-                if t:
-                    if debug:
-                        print(f"\nFound title in JSON-LD {atype}: {t[:100]}")
-                    return t
-
-            # Generic attempt
-            t = _get_first(obj, ["title", "headline", "name"]) or _get_first(obj.get("title", {}), ["text"]) 
-            if t:
-                if debug:
-                    print(f"\nFound title in JSON-LD object: {t[:100]}")
-                return t
-
+def _first_string(value, keys):
+    """Return the first non-empty string belonging to keys inside value."""
+    for key in keys:
+        candidate = value.get(key) if isinstance(value, dict) else None
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if isinstance(candidate, dict):
+            nested = _first_string(candidate, ("text", "value"))
+            if nested:
+                return nested
     return ""
 
 
-def _extract_title_from_meta(soup, debug=False):
-    """Try a comprehensive set of meta tags for title.
-    Checks OpenGraph, Twitter, itemprop, and a few common vendor tags.
-    Returns string or "".
-    """
+def _extract_title_from_json_ld(soup):
+    """Parse JSON-LD blocks and pull out a plausible title."""
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(script.string or script.get_text() or "")
+        except Exception:
+            continue
+
+        objects = data if isinstance(data, list) else [data]
+        for obj in objects:
+            if not isinstance(obj, dict):
+                continue
+            for key in ("title", "headline", "name"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                if isinstance(value, dict):
+                    nested = _first_string(value, ("text", "value"))
+                    if nested:
+                        return nested
+    return ""
+
+
+def _extract_title_from_meta(soup):
+    """Read common meta/itemprop attributes that carry the job title."""
     meta_selectors = [
         "meta[property='og:title']",
         "meta[name='og:title']",
         "meta[name='twitter:title']",
-        "meta[name='sailthru.title']",
         "meta[itemprop='headline']",
         "meta[itemprop='title']",
         "meta[name='title']",
-        "meta[name='hdl']",
     ]
-    for sel in meta_selectors:
-        el = soup.select_one(sel)
-        if el and (el.get("content") or el.get("value")):
-            t = (el.get("content") or el.get("value") or "").strip()
-            if t:
-                if debug:
-                    print(f"\nFound title in meta tag ({sel}): {t[:100]}")
-                return t
+    for selector in meta_selectors:
+        el = soup.select_one(selector)
+        content = el.get("content") or el.get("value") if el else ""
+        if content and content.strip():
+            return content.strip()
 
-    # Microdata attributes sometimes appear on non-meta tags
-    micro_sel = ["[itemprop='headline']", "[itemprop='name']", "[itemprop='title']"]
-    for sel in micro_sel:
-        el = soup.select_one(sel)
-        if el:
-            t = (el.get("content") or el.get_text(strip=True) or "").strip()
-            if t:
-                if debug:
-                    print(f"\nFound title via itemprop ({sel}): {t[:100]}")
-                return t
+    microdata_selectors = ["[itemprop='headline']", "[itemprop='name']", "[itemprop='title']"]
+    for selector in microdata_selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        content = el.get("content") or el.get_text(strip=True)
+        if content:
+            return content.strip()
     return ""
 
 
 def _clean_title_text(title: str) -> str:
+    """Normalise whitespace and trim common site suffixes."""
     if not title:
         return ""
-    # Normalize whitespace
-    t = " ".join(title.split())
-    # Strip common site suffixes and job generic words if they are the whole string
-    if t.lower() in {"job", "jobs", "career", "careers", "apply", "application"}:
+
+    cleaned = " ".join(title.split())
+    if cleaned.lower() in {"job", "jobs", "career", "careers", "apply", "application"}:
         return ""
-    # Remove leading/trailing separators and common site names
-    for site in ["Indeed", "LinkedIn", "Naukri", "Naukri.com"]:
-        if t.endswith(site):
-            t = t[: -len(site)].strip(" -|•:\u2013\u2014")
-    return t
+
+    for site in ("Indeed", "LinkedIn", "Naukri", "Naukri.com"):
+        if cleaned.endswith(site):
+            cleaned = cleaned[: -len(site)].rstrip(" -|•:—–")
+    return cleaned
 
 
 def extract_title_with_debug(soup, website_name, debug=True):
-    """
-    Extract job title with extensive debugging to identify the issue.
-    """
-    title = ""
-    
-    if debug:
-        print(f"\n{'='*50}")
-        print(f"DEBUG: Extracting title for {website_name}")
-        print(f"{'='*50}")
-        
-        # First, let's see all h1, h2, and h3 tags
-        print("\n--- All H1 tags found ---")
-        h1_tags = soup.find_all("h1")
-        for i, h1 in enumerate(h1_tags[:5]):  # Show first 5
-            print(f"H1 #{i}: {h1.get_text(strip=True)[:100]}")
-            print(f"   Classes: {h1.get('class')}")
-            print(f"   ID: {h1.get('id')}")
-            print(f"   Data attributes: {[k for k in h1.attrs.keys() if k.startswith('data-')]}")
-        
-        print("\n--- All H2 tags found ---")
-        h2_tags = soup.find_all("h2")
-        for i, h2 in enumerate(h2_tags[:5]):  # Show first 5
-            print(f"H2 #{i}: {h2.get_text(strip=True)[:100]}")
-            print(f"   Classes: {h2.get('class')}")
-        
-        # Let's also check the page title
+    """Extract the best guess for a job title, optionally logging misses."""
+    site_key = (website_name or "").lower()
+    selectors = SITE_TITLE_SELECTORS.get(site_key, [])
+    debug_notes = []
+
+    for selector in selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        candidate = el.get("title") or el.get_text(strip=True)
+        candidate = _clean_title_text(candidate)
+        if candidate:
+            if debug:
+                debug_notes.append(f"title from selector '{selector}'")
+            break
+    else:
+        candidate = _clean_title_text(_extract_title_from_json_ld(soup))
+        if candidate and debug:
+            debug_notes.append("title from JSON-LD")
+
+    if not candidate:
+        candidate = _clean_title_text(_extract_title_from_meta(soup))
+        if candidate and debug:
+            debug_notes.append("title from meta tags")
+
+    if not candidate:
         page_title = soup.find("title")
         if page_title:
-            print(f"\n--- Page <title> tag ---")
-            print(f"Title: {page_title.get_text(strip=True)}")
-        
-        # Check meta tags
-        print("\n--- Meta tags with potential title info ---")
-        meta_tags = soup.find_all("meta", attrs={"property": True})
-        for meta in meta_tags[:10]:
-            if "title" in str(meta.get("property", "")).lower():
-                print(f"Meta: {meta.get('property')} = {meta.get('content', '')[:100]}")
-    
-    # Now try to extract based on website
-    if website_name.lower() == "naukri":
-        # Try all possible Naukri selectors
-        selectors = [
-            "h1.styles_jd-header-title__rZwM1",
-            "h1[class*='title']",
-            "h1[class*='Title']",
-            "h1[class*='header']",
-            "div[class*='title'] h1",
-            "div[class*='Title'] h1",
-            ".jd-header-title",
-            "h1",  # Generic h1
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                for el in elements:
-                    text = el.get_text(strip=True)
-                    if text and 5 < len(text) < 200:
-                        if debug:
-                            print(f"\nFound title with selector '{selector}': {text[:100]}")
-                        title = text
-                        break
-            if title:
-                break
-                
-    elif website_name.lower() == "indeed":
-        # Try all possible Indeed selectors
-        selectors = [
-            "h1[data-testid='jobsearch-JobInfoHeader-title']",
-            "h1.jobsearch-JobInfoHeader-title",
-            "h1 span[title]",  # Sometimes title is in a span with title attribute
-            "h1 span",
-            "div[class*='jobsearch'] h1",
-            "div[class*='JobInfoHeader'] h1",
-            "[class*='title']",
-            "h1",  # Generic h1
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                for el in elements:
-                    # Check if there's a title attribute
-                    if el.get('title'):
-                        text = el.get('title')
-                    else:
-                        text = el.get_text(strip=True)
-                    
-                    if text and 5 < len(text) < 200 and not text.startswith("Company"):
-                        if debug:
-                            print(f"\nFound title with selector '{selector}': {text[:100]}")
-                        title = text
-                        break
-            if title:
-                break
-                
-    elif website_name.lower() == "linkedin":
-        # Try all possible LinkedIn selectors
-        selectors = [
-            "h1.topcard__title",
-            "h1.jobs-unified-top-card__job-title",
-            "h2.top-card-layout__title",
-            "h1[class*='title']",
-            "h1[class*='Title']",
-            "div.top-card h1",
-            "h1",  # Generic h1
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                for el in elements:
-                    text = el.get_text(strip=True)
-                    if text and 5 < len(text) < 200:
-                        if debug:
-                            print(f"\nFound title with selector '{selector}': {text[:100]}")
-                        title = text
-                        break
-            if title:
-                break
-    
-    # Try generic JSON-LD and meta fallbacks before page <title>
-    if not title:
-        json_ld_title = _extract_title_from_json_ld(soup, debug=debug)
-        if json_ld_title:
-            title = json_ld_title
+            candidate = _clean_title_text(page_title.get_text(strip=True))
+            if candidate and debug:
+                debug_notes.append("title from <title> tag")
 
-    if not title:
-        meta_title = _extract_title_from_meta(soup, debug=debug)
-        if meta_title:
-            title = meta_title
-
-    # Final fallback - look for any reasonable text that could be a title
-    if not title:
-        # Try to extract from page title
-        page_title_el = soup.find("title")
-        if page_title_el:
-            full_title = page_title_el.get_text(strip=True)
-            if debug:
-                print(f"\nTrying to extract from page title: {full_title}")
-            
-            # Clean up the title
-            # Remove company names and locations that typically come after separators
-            if " - " in full_title:
-                parts = full_title.split(" - ")
-                title = parts[0].strip()
-            elif " | " in full_title:
-                parts = full_title.split(" | ")
-                title = parts[0].strip()
-            else:
-                # Remove common suffixes
-                for suffix in ["Jobs", "Job", "Careers", "Career", "Hiring", "Opening"]:
-                    if full_title.endswith(suffix):
-                        full_title = full_title[:-len(suffix)].strip()
-                title = full_title
-            
-            # Remove website names
-            for site in ["Indeed", "LinkedIn", "Naukri", "Naukri.com"]:
-                if title.endswith(site):
-                    title = title[:-len(site)].strip(" -|")
-    
-    # Try meta/twitter/itemprop as absolute last resort (covers sites without <title> semantics)
-    if not title:
-        meta_title = _extract_title_from_meta(soup, debug=debug)
-        if meta_title:
-            title = meta_title
-    
-    # Clean up the title
-    if title:
-        # Remove extra whitespace and generic single-word titles
-        title = _clean_title_text(title)
-        if not title:
-            title = "Title Not Available"
-    else:
-        title = "Title Not Available"
+    if not candidate:
+        candidate = "Title Not Available"
         if debug:
-            print("\n!!! Could not find title - please check the HTML structure !!!")
-            # Print a sample of the HTML to understand structure
-            print("\nFirst 2000 characters of HTML body:")
-            body = soup.find("body")
-            if body:
-                body_text = str(body)[:2000]
-                print(body_text)
-    
-    if debug:
-        print(f"\n{'='*50}")
-        print(f"FINAL TITLE: {title}")
-        print(f"{'='*50}\n")
-    
-    return title
+            debug_notes.append("title lookup failed")
+
+    if debug and debug_notes:
+        print("; ".join(debug_notes))
+
+    return candidate
 
 
 def change_base_url(
@@ -371,6 +209,7 @@ def change_base_url(
     profession: str = None,
     website_name: str = None,
 ):
+    """Build a site-specific search URL from the optional filters provided."""
     if website_name.lower() == "naukri":
         input_url = "https://www.naukri.com"
         if company and location and profession:
@@ -443,10 +282,16 @@ def change_base_url(
         return None
 
 
+# ---------------------------------------------------------------------------
+# Custom job parsers (user-authored)
+# ---------------------------------------------------------------------------
+
+
 def get_parsed_jobs_naukri(result, jobs, debug=False):
     soup = BeautifulSoup(result.html, "html.parser")
 
     # Title - using enhanced extraction with debug
+    # Keep shared title extraction so the helper logic stays centralised.
     title = extract_title_with_debug(soup, "naukri", debug=debug)
     
     # If title extraction failed, try to get any context about the page
@@ -549,7 +394,7 @@ def get_parsed_jobs_indeed(result, jobs, debug=False):
     """
     soup = BeautifulSoup(result.html, "html.parser")
 
-    # Title - using enhanced extraction with debug
+    # Title - using enhanced extraction with debug to stay consistent across sites
     title = extract_title_with_debug(soup, "indeed", debug=debug)
 
     # Company
@@ -619,7 +464,7 @@ def get_parsed_jobs_linkedin(result, jobs, debug=False):
     """
     soup = BeautifulSoup(result.html, "html.parser")
 
-    # Title - using enhanced extraction with debug
+    # Title - using enhanced extraction with debug to stay consistent across sites
     title = extract_title_with_debug(soup, "linkedin", debug=debug)
 
     # Company

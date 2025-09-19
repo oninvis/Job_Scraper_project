@@ -21,7 +21,7 @@ from config import (
 import parser_fuctions1 as pf
 
 company, location, profession, website_name, job_number = pf.user_params(
-    website_name="naukri",
+    website_name="linkedin",  # naukri, indeed, linkedin
     profession='it',
     job_number=20,
     #company="accenture",
@@ -43,15 +43,18 @@ async def crawl_jobs():
                 page_url = f"{BASE_URL}-{page_number}"
                 css_selector = CSS_SELECTOR_naukri
                 css_selector_dir_page = CSS_SELECTOR_naukri_dir_page
+                wait_selector_dir_page = "section#job_header h1"
             elif website_name == "linkedin":
 
                 page_url = f"{BASE_URL}&start={(page_number - 1) * 25}"
                 css_selector = CSS_SELECTOR_linkedin
                 css_selector_dir_page = CSS_SELECTOR_linkedin_dir_page
+                wait_selector_dir_page = "h1[class*='topcard__title']"
             else:
                 page_url = f"{BASE_URL}&start={(page_number - 1) * 10}"
                 css_selector = CSS_SELECTOR_indeed
                 css_selector_dir_page = CSS_SELECTOR_indeed_dir_page
+                wait_selector_dir_page = "h1[data-testid='jobsearch-JobInfoHeader-title']"
 
             result = await crawler.arun(
                 url=page_url,
@@ -102,14 +105,14 @@ async def crawl_jobs():
                         js_code="window.scrollTo(0, document.body.scrollHeight);",
                         session_id="job_session",
                         css_selector=css_selector_dir_page,
-                        wait_for=css_selector_dir_page,
+                        wait_for=wait_selector_dir_page,
                     ),
                 )
-                await asyncio.sleep(2)
-                file_path = "html.txt"
-                with open(file_path, "a", encoding="utf-8") as f:
-                    f.write(result_dir_page.html)
-                    f.write("\n\n")
+                await asyncio.sleep(3)
+                #file_path = "html.txt"
+                #with open(file_path, "a", encoding="utf-8") as f:
+                #    f.write(result_dir_page.html)
+                #    f.write("\n\n")
                 if website_name == "indeed":
                     pf.get_parsed_jobs_indeed(result_dir_page, jobs)
                 elif website_name == "naukri":
