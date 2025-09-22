@@ -1,15 +1,23 @@
-from datetime import datetime, timedelta
-import re
-from bs4 import BeautifulSoup
+#!/usr/bin/env python3
+"""
+Job Parsing Functions
+
+This module contains utilities for parsing job data from different job sites
+(Indeed, Naukri, LinkedIn) and utility functions for URL building and date parsing.
+"""
+
 import csv
 import json
-from config import (
-    CSS_SELECTOR_indeed_dir_page,
-    CSS_SELECTOR_naukri_dir_page,
-    CSS_SELECTOR_indeed,
-    CSS_SELECTOR_naukri,
-)
+import re
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Any
 
+from bs4 import BeautifulSoup
+
+
+# ================================
+# User Configuration Functions
+# ================================
 
 def user_params(
     company: str = None,
@@ -17,289 +25,621 @@ def user_params(
     profession: str = None,
     website_name: str = None,
     job_number: int = 10,
-):
+) -> tuple:
+    """
+    Package user search parameters into a convenient tuple.
+
+    Args:
+        company: Company name to filter by
+        location: Location to search in
+        profession: Job profession/role to search for
+        website_name: Target website (naukri, indeed, linkedin)
+        job_number: Maximum number of jobs to scrape
+
+    Returns:
+        Tuple of all parameters for easy unpacking
+    """
     return company, location, profession, website_name, job_number
 
 
-def text_or(el, default=""):
-    return el.get_text(strip=True) if el else default
+# ================================
+# Date Parsing Functions
+# ================================
 
-
-def parse_posted_date(rel: str):
+def parse_posted_date(relative_phrase: str) -> Optional[datetime]:
     """
-    Convert strings like '1 day ago', '3 weeks ago', 'Just now',
-    or 'Starts in 1-3 months' into a datetime.date.
-    Returns None if it can’t parse.
+    Convert relative date strings like '3 days ago' into actual dates.
 
+    Args:
+        relative_phrase: String like "3 days ago", "2 weeks ago", "just now"
+
+    Returns:
+        Date object or None if parsing fails
     """
-    rel = rel.lower().strip()
+    if not relative_phrase:
+        return None
+
+    phrase = relative_phrase.lower().strip()
     today = datetime.today()
 
-    if not rel:
-        return None
-    if "just now" in rel:
+    if "just now" in phrase:
         return today.date()
 
-    # X days ago
-    m = re.match(r"(\d+)\s*day", rel)
-    if m:
-        return (today - timedelta(days=int(m.group(1)))).date()
+    # Define patterns for different time units
+    patterns = [
+        (r"(\d+)\s*day", lambda value: timedelta(days=value)),
+        (r"(\d+)\s*week", lambda value: timedelta(weeks=value)),
+        (r"(\d+)\s*month", lambda value: timedelta(days=30 * value)),
+        (r"starts in\s*(\d+)\s*day", lambda value: -timedelta(days=value)),
+        (r"starts in\s*(\d+)\s*week", lambda value: -timedelta(weeks=value)),
+        (r"starts in\s*(\d+)\s*month", lambda value: -timedelta(days=30 * value)),
+    ]
 
-    # X weeks ago
-    m = re.match(r"(\d+)\s*week", rel)
-    if m:
-        return (today - timedelta(weeks=int(m.group(1)))).date()
-
-    # X months ago (approximate as 30 days each)
-    m = re.match(r"(\d+)\s*month", rel)
-    if m:
-        return (today - timedelta(days=30 * int(m.group(1)))).date()
-
-    # Starts in X days / weeks / months
-    m = re.match(r"starts in\s*(\d+)\s*day", rel)
-    if m:
-        return (today + timedelta(days=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*week", rel)
-    if m:
-        return (today + timedelta(weeks=int(m.group(1)))).date()
-    m = re.match(r"starts in\s*(\d+)\s*month", rel)
-    if m:
-        return (today + timedelta(days=30 * int(m.group(1)))).date()
+    for pattern, builder in patterns:
+        match = re.search(pattern, phrase)
+        if match:
+            value = int(match.group(1))
+            delta = builder(value)
+            return (today - delta).date()
 
     return None
 
+
+# ================================
+# Title Extraction Functions
+# ================================
+
+# Site-specific selectors for job titles
+SITE_TITLE_SELECTORS = {
+    "naukri": [
+        "section#job_header h1",
+        "h1.styles_jd-header-title__rZwM1",
+        "h1[class*='title']",
+    ],
+    "indeed": [
+        "h1[data-testid='jobsearch-JobInfoHeader-title']",
+        "h1.jobsearch-JobInfoHeader-title",
+        "h1 span[title]",
+    ],
+    "linkedin": [
+        "h1.topcard__title",
+        "h1.jobs-unified-top-card__job-title",
+        "h2.top-card-layout__title",
+    ],
+}
+
+
+def _first_string(value: Any, keys: List[str]) -> str:
+    """Find the first non-empty string value from nested dict keys."""
+    for key in keys:
+        candidate = value.get(key) if isinstance(value, dict) else None
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if isinstance(candidate, dict):
+            nested = _first_string(candidate, ("text", "value"))
+            if nested:
+                return nested
+    return ""
+
+
+def _extract_title_from_json_ld(soup: BeautifulSoup) -> str:
+    """Parse JSON-LD structured data blocks for job titles."""
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(script.string or script.get_text() or "")
+        except Exception:
+            continue
+
+        objects = data if isinstance(data, list) else [data]
+        for obj in objects:
+            if not isinstance(obj, dict):
+                continue
+            for key in ("title", "headline", "name"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                if isinstance(value, dict):
+                    nested = _first_string(value, ("text", "value"))
+                    if nested:
+                        return nested
+    return ""
+
+
+def _extract_title_from_meta(soup: BeautifulSoup) -> str:
+    """Extract job title from meta tags and microdata."""
+    meta_selectors = [
+        "meta[property='og:title']",
+        "meta[name='og:title']",
+        "meta[name='twitter:title']",
+        "meta[itemprop='headline']",
+        "meta[itemprop='title']",
+        "meta[name='title']",
+    ]
+
+    for selector in meta_selectors:
+        el = soup.select_one(selector)
+        content = el.get("content") or el.get("value") if el else ""
+        if content and content.strip():
+            return content.strip()
+
+    microdata_selectors = ["[itemprop='headline']", "[itemprop='name']", "[itemprop='title']"]
+    for selector in microdata_selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        content = el.get("content") or el.get_text(strip=True)
+        if content:
+            return content.strip()
+    return ""
+
+
+def _clean_title_text(title: str) -> str:
+    """Clean and normalize job title text."""
+    if not title:
+        return ""
+
+    cleaned = " ".join(title.split())
+
+    # Filter out generic/unhelpful titles
+    if cleaned.lower() in {"job", "jobs", "career", "careers", "apply", "application"}:
+        return ""
+
+    # Remove site name suffixes
+    for site in ("Indeed", "LinkedIn", "Naukri", "Naukri.com"):
+        if cleaned.endswith(site):
+            cleaned = cleaned[: -len(site)].rstrip(" -|•:—–")
+    return cleaned
+
+
+def extract_title_with_debug(soup: BeautifulSoup, website_name: str, debug: bool = True) -> str:
+    """
+    Extract job title using multiple fallback strategies.
+
+    Args:
+        soup: BeautifulSoup object of the job page
+        website_name: Name of the job site
+        debug: Whether to print debug information
+
+    Returns:
+        Extracted job title or "Title Not Available"
+    """
+    site_key = (website_name or "").lower()
+    selectors = SITE_TITLE_SELECTORS.get(site_key, [])
+    debug_notes = []
+
+    # Try site-specific selectors first
+    for selector in selectors:
+        el = soup.select_one(selector)
+        if not el:
+            continue
+        candidate = el.get("title") or el.get_text(strip=True)
+        candidate = _clean_title_text(candidate)
+        if candidate:
+            if debug:
+                debug_notes.append(f"title from selector '{selector}'")
+            break
+    else:
+        # Fallback to JSON-LD
+        candidate = _clean_title_text(_extract_title_from_json_ld(soup))
+        if candidate and debug:
+            debug_notes.append("title from JSON-LD")
+
+    # Fallback to meta tags
+    if not candidate:
+        candidate = _clean_title_text(_extract_title_from_meta(soup))
+        if candidate and debug:
+            debug_notes.append("title from meta tags")
+
+    # Final fallback to page title
+    if not candidate:
+        page_title = soup.find("title")
+        if page_title:
+            candidate = _clean_title_text(page_title.get_text(strip=True))
+            if candidate and debug:
+                debug_notes.append("title from <title> tag")
+
+    if not candidate:
+        candidate = "Title Not Available"
+        if debug:
+            debug_notes.append("title lookup failed")
+
+    if debug and debug_notes:
+        print("; ".join(debug_notes))
+
+    return candidate
+
+
+# ================================
+# URL Building Functions
+# ================================
 
 def change_base_url(
     company: str = None,
     location: str = None,
     profession: str = None,
     website_name: str = None,
-):
+) -> tuple:
+    """
+    Build site-specific search URLs based on filter parameters.
+
+    Args:
+        company: Company name filter
+        location: Location filter
+        profession: Job role filter
+        website_name: Target job site
+
+    Returns:
+        Tuple of (base_url, input_url)
+    """
     if website_name.lower() == "naukri":
         input_url = "https://www.naukri.com"
         if company and location and profession:
-            BASE_URL = f"{input_url}/{profession}-{company}-jobs-in-{location}"
+            base_url = f"{input_url}/{profession}-{company}-jobs-in-{location}"
         elif company and profession:
-            BASE_URL = f"{input_url}/{company}-{profession}-jobs"
+            base_url = f"{input_url}/{company}-{profession}-jobs"
         elif location and profession:
-            BASE_URL = f"{input_url}/jobs-in-{location}-{profession}"
+            base_url = f"{input_url}/jobs-in-{location}-{profession}"
         elif company and location:
-            BASE_URL = f"{input_url}/{company}-jobs-in-{location}"
+            base_url = f"{input_url}/{company}-jobs-in-{location}"
         elif company:
-            BASE_URL = f"{input_url}/{company}-jobs"
+            base_url = f"{input_url}/{company}-jobs"
         elif location:
-            BASE_URL = f"{input_url}/jobs-in-{location}"
+            base_url = f"{input_url}/jobs-in-{location}"
         elif profession:
-            BASE_URL = f"{input_url}/{profession}-jobs"
+            base_url = f"{input_url}/{profession}-jobs"
         else:
-            BASE_URL = f'{input_url}/jobs'
-        return BASE_URL, input_url
+            base_url = f'{input_url}/jobs'
+        return base_url, input_url
+
     elif website_name.lower() == "indeed":
         input_url = "https://www.indeed.com"
-        if company and location and profession:
-            BASE_URL = f"{input_url}/jobs?q={profession}+{company}&l={location}"
-        elif company and profession:
-            BASE_URL = f"{input_url}/jobs?q={company}+{profession}"
-        elif location and profession:
-            BASE_URL = f"{input_url}/jobs?q={profession}&l={location}"
-        elif company and location:
-            BASE_URL = f"{input_url}/jobs?q={company}&l={location}"
-        elif company:
-            BASE_URL = f"{input_url}/jobs?q={company}"
-        elif location:
-            BASE_URL = f"{input_url}/jobs?l={location}"
-        elif profession:
-            BASE_URL = f"{input_url}/jobs?q={profession}"
-        else:
-            BASE_URL = input_url
-        return BASE_URL, input_url
+        query_parts = []
+
+        if profession:
+            query_parts.append(profession)
+        if company:
+            query_parts.append(company)
+
+        query = "+".join(query_parts) if query_parts else ""
+
+        base_url = f"{input_url}/jobs"
+        if query:
+            base_url += f"?q={query}"
+        if location:
+            connector = "&" if query else "?"
+            base_url += f"{connector}l={location}"
+
+        return base_url, input_url
+
     elif website_name.lower() == "linkedin":
         input_url = "https://www.linkedin.com"
-        # LinkedIn job search endpoint
-        #   /jobs/search?keywords=<…>&location=<…>
 
-        if company and location and profession:
-            BASE_URL = (
-                f"{input_url}/jobs/search?"
-                f"keywords={profession}%20{company}&location={location}"
-            )
-        elif company and profession:
-            BASE_URL = f"{input_url}/jobs/search?" f"keywords={profession}%20{company}"
-        elif location and profession:
-            BASE_URL = (
-                f"{input_url}/jobs/search?" f"keywords={profession}&location={location}"
-            )
-        elif company and location:
-            BASE_URL = (
-                f"{input_url}/jobs/search?" f"keywords={company}&location={location}"
-            )
-        elif company:
-            BASE_URL = f"{input_url}/jobs/search?" f"keywords={company}"
-        elif location:
-            BASE_URL = f"{input_url}/jobs/search?" f"location={location}"
-        elif profession:
-            BASE_URL = f"{input_url}/jobs/search?" f"keywords={profession}"
-        else:
-            BASE_URL = input_url
+        keywords = []
+        if profession:
+            keywords.append(profession)
+        if company:
+            keywords.append(company)
 
-        return BASE_URL, input_url
+        keywords_str = "%20".join(keywords) if keywords else ""
+
+        base_url = f"{input_url}/jobs/search"
+        params = []
+
+        if keywords_str:
+            params.append(f"keywords={keywords_str}")
+        if location:
+            params.append(f"location={location}")
+
+        if params:
+            base_url += "?" + "&".join(params)
+
+        return base_url, input_url
     else:
-        return None
+        return None, None
 
 
-def get_parsed_jobs_naukri(result, jobs):
+# ================================
+# Site-Specific Parsers
+# ================================
+
+def get_parsed_jobs_naukri(result: Any, jobs: List[Dict], debug: bool = False) -> List[Dict]:
+    """
+    Parse job details from a Naukri job page.
+
+    Args:
+        result: Crawl result object with HTML content
+        jobs: List to append parsed job data to
+        debug: Enable debug output
+
+    Returns:
+        Updated jobs list
+    """
     soup = BeautifulSoup(result.html, "html.parser")
 
-    # Title
-    title_el = soup.select_one("h1.styles_jd-header-title__rZwM1")
-    title = title_el.get_text(strip=True) if title_el else ""
+    # Extract title using enhanced method
+    title = extract_title_with_debug(soup, "naukri", debug=debug)
 
-    # Company
-    comp_el = soup.select_one("div.styles_jd-header-comp-name__MvqAI a")
-    company = comp_el.get_text(strip=True) if comp_el else ""
+    # If enhanced extraction failed, try manual fallback
+    if title == "Title Not Available" and debug:
+        print("\n--- Attempting manual title extraction ---")
+        for tag in ['h1', 'h2', 'h3']:
+            elements = soup.find_all(tag, limit=5)
+            for el in elements:
+                text = el.get_text(strip=True)
+                if text and 10 < len(text) < 100:
+                    job_keywords = ['developer', 'engineer', 'manager', 'analyst', 'designer',
+                                  'administrator', 'specialist', 'consultant', 'architect',
+                                  'lead', 'senior', 'junior', 'intern', 'associate']
+                    if any(keyword in text.lower() for keyword in job_keywords):
+                        print(f"Found potential title: {text[:80]}")
+                        if title == "Title Not Available":
+                            title = text
+                            break
+            if title != "Title Not Available":
+                break
 
-    # Location(s)
-    loc_container = soup.select_one(
-        "div.styles_jhc__loc___Du2H span.styles_jhc__location__W_pVs"
-    )
-    if loc_container:
-        # there may be multiple <a> tags for each city
-        locations = [a.get_text(strip=True) for a in loc_container.select("a")]
-        location = ", ".join(locations)
-    else:
-        location = ""
-
-    # Full description
-    desc_el = soup.select_one("div.styles_JDC__dang-inner-html__h0K4t")
-    description = desc_el.get_text("\n", strip=True) if desc_el else ""
-    final_desc = description[:100]
-
-    # Posted date
-    posted = ""
-    stats = soup.select("div.styles_jhc__jd-stats__KrId0 span.styles_jhc__stat__PgY67")
-    for stat in stats:
-        text = stat.get_text(" ", strip=True)
-        if text.lower().startswith("posted"):
-            # e.g. "Posted: 4 days ago"
-            posted = parse_posted_date(text.split(":", 1)[1].strip())
+    # Extract company with fallbacks
+    company = ""
+    company_selectors = [
+        "div.styles_jd-header-comp-name__MvqAI a",
+        "a[class*='comp-name']",
+        "div[class*='company'] a"
+    ]
+    for selector in company_selectors:
+        comp_el = soup.select_one(selector)
+        if comp_el:
+            company = comp_el.get_text(strip=True)
             break
 
-    jobs.append(
-        {
-            "title": title,
-            "company": company,
-            "location": location,
-            "description": final_desc,
-            "posted": posted,
-        }
-    )
+    # Extract location with fallbacks
+    location = ""
+    loc_selectors = [
+        "div.styles_jhc__loc___Du2H span.styles_jhc__location__W_pVs",
+        "span[class*='location']"
+    ]
+    for selector in loc_selectors:
+        loc_container = soup.select_one(selector)
+        if loc_container:
+            locations = [a.get_text(strip=True) for a in loc_container.select("a")]
+            if not locations:
+                locations = [loc_container.get_text(strip=True)]
+            location = ", ".join(filter(None, locations))
+            break
+
+    # Extract description with fallbacks
+    description = ""
+    desc_selectors = [
+        "div.styles_JDC__dang-inner-html__h0K4t",
+        "div[class*='description']",
+        "div[class*='job-desc']"
+    ]
+    for selector in desc_selectors:
+        desc_el = soup.select_one(selector)
+        if desc_el:
+            description = desc_el.get_text("\n", strip=True)[:100]
+            break
+
+    # Extract posted date
+    posted = ""
+    posted_selectors = [
+        "div.styles_jhc__jd-stats__KrId0 span.styles_jhc__stat__PgY67",
+        "span[class*='posted']"
+    ]
+    for selector in posted_selectors:
+        stats = soup.select(selector)
+        for stat in stats:
+            text = stat.get_text(" ", strip=True)
+            if "ago" in text.lower() or "posted" in text.lower():
+                if ":" in text:
+                    posted = parse_posted_date(text.split(":", 1)[1].strip())
+                else:
+                    posted = parse_posted_date(text)
+                break
+        if posted:
+            break
+
+    jobs.append({
+        "title": title,
+        "company": company,
+        "location": location,
+        "description": description,
+        "posted": posted,
+    })
     return jobs
 
 
-def get_parsed_jobs_indeed(result, jobs):
+def get_parsed_jobs_indeed(result: Any, jobs: List[Dict], debug: bool = False) -> List[Dict]:
     """
-    Parses an Indeed job-detail page (result.html) and appends a dict with:
-      - title
-      - company
-      - location
-      - salary
-      - description
-      - posted
-    into the given jobs list.
+    Parse job details from an Indeed job page.
+
+    Args:
+        result: Crawl result object with HTML content
+        jobs: List to append parsed job data to
+        debug: Enable debug output
+
+    Returns:
+        Updated jobs list
     """
     soup = BeautifulSoup(result.html, "html.parser")
 
-    # Title
-    title_el = soup.select_one("h1[data-testid='jobsearch-JobInfoHeader-title']")
-    title = title_el.get_text(strip=True) if title_el else ""
+    # Extract title using enhanced method
+    title = extract_title_with_debug(soup, "indeed", debug=debug)
 
-    # Company
-    comp_el = soup.select_one("div[data-company-name='true'] a")
-    company = comp_el.get_text(strip=True) if comp_el else ""
+    # Extract company with fallbacks
+    company = ""
+    company_selectors = [
+        "div[data-company-name='true'] a",
+        "div[data-company-name='true']",
+        "a[data-testid*='company']",
+        "div[class*='company'] a"
+    ]
+    for selector in company_selectors:
+        comp_el = soup.select_one(selector)
+        if comp_el:
+            company = comp_el.get_text(strip=True)
+            break
 
-    # Location
-    loc_el = soup.select_one("div[data-testid='inlineHeader-companyLocation']")
-    location = loc_el.get_text(strip=True) if loc_el else ""
+    # Extract location with fallbacks
+    location = ""
+    location_selectors = [
+        "div[data-testid='inlineHeader-companyLocation']",
+        "div[data-testid*='location']",
+        "div[class*='location']"
+    ]
+    for selector in location_selectors:
+        loc_el = soup.select_one(selector)
+        if loc_el:
+            location = loc_el.get_text(strip=True)
+            break
 
-    # Salary
-    sal_el = soup.select_one("#salaryInfoAndJobType")
-    salary = sal_el.get_text(strip=True) if sal_el else ""
+    # Extract salary with fallbacks
+    salary = ""
+    salary_selectors = [
+        "#salaryInfoAndJobType",
+        "span[class*='salary']",
+        "div[class*='salary']"
+    ]
+    for selector in salary_selectors:
+        sal_el = soup.select_one(selector)
+        if sal_el:
+            salary = sal_el.get_text(strip=True)
+            break
 
-    # Full description
-    desc_el = soup.select_one("div#jobDescriptionText")
-    description = desc_el.get_text("\n", strip=True) if desc_el else ""
-    description = description[:100]  # limit to first 100 chars
+    # Extract description with fallbacks
+    description = ""
+    desc_selectors = [
+        "div#jobDescriptionText",
+        "div[class*='jobDescription']",
+        "div[class*='description']"
+    ]
+    for selector in desc_selectors:
+        desc_el = soup.select_one(selector)
+        if desc_el:
+            description = desc_el.get_text("\n", strip=True)[:100]
+            break
 
-    # Posted date (e.g. "Posted: 4 days ago")
+    # Extract posted date
     posted = ""
     post_el = soup.find(string=lambda t: t and t.strip().lower().startswith("posted"))
+    if not post_el:
+        post_el = soup.find(string=lambda t: t and "ago" in t.lower())
     if post_el:
-        # split off the "Posted:" prefix
-        posted = post_el.strip().split(":", 1)[-1].strip()
+        text = post_el.strip()
+        posted = text.split(":", 1)[-1].strip() if ":" in text else text
 
-    jobs.append(
-        {
-            "title": title,
-            "company": company,
-            "location": location,
-            "salary": salary,
-            "description": description,
-            "posted": posted,
-        }
-    )
+    jobs.append({
+        "title": title,
+        "company": company,
+        "location": location,
+        "salary": salary,
+        "description": description,
+        "posted": posted,
+    })
     return jobs
 
-def get_parsed_jobs_linkedin(result, jobs):
+
+def get_parsed_jobs_linkedin(result: Any, jobs: List[Dict], debug: bool = False) -> List[Dict]:
     """
-    Parse a LinkedIn job‐detail page (result.html) and append a dict to jobs.
+    Parse job details from a LinkedIn job page.
+
+    Args:
+        result: Crawl result object with HTML content
+        jobs: List to append parsed job data to
+        debug: Enable debug output
+
+    Returns:
+        Updated jobs list
     """
     soup = BeautifulSoup(result.html, "html.parser")
 
-    # Title
-    title_el = soup.select_one("h1.topcard__title")
-    title = title_el.get_text(strip=True) if title_el else ""
+    # Extract title using enhanced method
+    title = extract_title_with_debug(soup, "linkedin", debug=debug)
 
-    # Company
-    comp_el = soup.select_one("a.topcard__org-name-link")
-    if not comp_el:
-        # fallback if LinkedIn uses a span instead
-        comp_el = soup.select_one("span.topcard__flavor")
-    company = comp_el.get_text(strip=True) if comp_el else ""
+    # Extract company with fallbacks
+    company = ""
+    company_selectors = [
+        "a.topcard__org-name-link",
+        "span.topcard__flavor",
+        "a[class*='company']",
+        "div[class*='company']"
+    ]
+    for selector in company_selectors:
+        comp_el = soup.select_one(selector)
+        if comp_el:
+            company = comp_el.get_text(strip=True)
+            break
 
-    # Location
-    loc_el = soup.select_one("span.topcard__flavor--bullet")
-    location = loc_el.get_text(strip=True) if loc_el else ""
+    # Extract location with fallbacks
+    location = ""
+    location_selectors = [
+        "span.topcard__flavor--bullet",
+        "span[class*='location']"
+    ]
+    for selector in location_selectors:
+        loc_el = soup.select_one(selector)
+        if loc_el:
+            location = loc_el.get_text(strip=True)
+            break
 
-    # Posted date
-    posted_el = soup.select_one("span.posted-time-ago__text")
-    posted = posted_el.get_text(strip=True) if posted_el else ""
+    # Extract posted date with fallbacks
+    posted = ""
+    posted_selectors = [
+        "span.posted-time-ago__text",
+        "span[class*='posted']"
+    ]
+    for selector in posted_selectors:
+        posted_el = soup.select_one(selector)
+        if posted_el:
+            posted = posted_el.get_text(strip=True)
+            break
 
-    # Full description
-    desc_el = soup.select_one("div.show-more-less-html__markup")
-    if not desc_el:
-        # another common wrapper
-        desc_el = soup.select_one("div.description__text")
-    description = desc_el.get_text("\n", strip=True) if desc_el else ""
-    description = description[:100]  # limit to first 100 chars
+    if not posted:
+        # Look for any span containing "ago"
+        for span in soup.find_all("span"):
+            if "ago" in span.get_text(strip=True).lower():
+                posted = span.get_text(strip=True)
+                break
 
-    jobs.append(
-        {
-            "title": title,
-            "company": company,
-            "location": location,
-            "description": description,
-            "posted": posted,
-        }
-    )
+    # Extract description with fallbacks
+    description = ""
+    desc_selectors = [
+        "div.show-more-less-html__markup",
+        "div.description__text",
+        "div[class*='description']"
+    ]
+    for selector in desc_selectors:
+        desc_el = soup.select_one(selector)
+        if desc_el:
+            description = desc_el.get_text("\n", strip=True)[:100]
+            break
+
+    jobs.append({
+        "title": title,
+        "company": company,
+        "location": location,
+        "description": description,
+        "posted": posted,
+    })
     return jobs
 
 
-def convert_to_csv(jobs, filename="jobs.csv"):
+# ================================
+# Export Functions
+# ================================
+
+def convert_to_csv(jobs: List[Dict], filename: str = "jobs.csv") -> None:
+    """
+    Export job data to CSV file.
+
+    Args:
+        jobs: List of job dictionaries
+        filename: Output CSV filename
+    """
     if not jobs:
         print("No jobs to save.")
         return
 
-    # Dynamically infer the exact columns from the first job dict
+    # Dynamically determine columns from first job
     field_names = list(jobs[0].keys())
 
     with open(filename, "w", newline="", encoding="utf-8") as csvfile:
